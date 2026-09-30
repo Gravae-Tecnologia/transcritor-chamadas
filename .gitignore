@@ -1,0 +1,11 @@
+# Só a extensão do Chrome é pública. O programa do PC (transcrição local com
+# Whisper, copiloto de vendas e roteiros) fica fora do repositório.
+desktop/
+testes/teste_desktop.py
+testes/teste_pessoas.py
+testes/teste_copiloto.py
+
+__pycache__/
+*.pyc
+node_modules/
+.playwright-mcp/

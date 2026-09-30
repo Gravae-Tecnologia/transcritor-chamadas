@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Transcritor de Chamadas</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>Transcrições</h1>
+    <button id="abrir-opcoes" class="icone" title="Opções" aria-expanded="false">⚙</button>
+  </header>
+
+  <section id="opcoes" hidden>
+    <label><input type="checkbox" id="automatico"> Ligar as legendas e transcrever sozinho</label>
+    <label><input type="checkbox" id="baixarAoSair"> Baixar o .md ao sair da chamada</label>
+    <label><input type="checkbox" id="esconderLegendas"> Esconder as legendas da tela</label>
+    <label class="campo">Seu nome (no lugar de "Você")
+      <input type="text" id="meuNome" placeholder="o nome da sua conta do Google">
+    </label>
+    <p class="dica">As legendas saem no idioma escolhido no Meet (Configurações › Legendas). Os arquivos vão para Downloads/Transcricoes.</p>
+  </section>
+
+  <section id="aba-atual" hidden>
+    <span id="aba-estado"></span>
+    <button id="aba-comecar" hidden>Transcrever esta chamada</button>
+  </section>
+
+  <section id="audio-aba" hidden>
+    <div class="linha-topo">
+      <strong>Áudio desta aba</strong>
+      <span id="audio-estado" class="dica"></span>
+    </div>
+    <div id="audio-parado">
+      <label class="dica"><input type="checkbox" id="audio-microfone"> com o meu microfone</label>
+      <button id="audio-comecar">Transcrever o áudio desta aba</button>
+    </div>
+    <div id="audio-gravando" hidden>
+      <pre id="audio-linhas"></pre>
+      <button id="audio-parar" class="perigo">Parar e salvar</button>
+    </div>
+    <p id="audio-ultima" class="dica" hidden></p>
+  </section>
+
+  <main id="lista"></main>
+  <p id="vazio" class="dica" hidden>Nenhuma chamada transcrita ainda. Entre numa chamada do Google Meet e a transcrição começa sozinha.</p>
+
+  <template id="modelo">
+    <article class="reuniao">
+      <div class="cabeca">
+        <strong class="titulo"></strong>
+        <span class="estado"></span>
+      </div>
+      <div class="meta"></div>
+      <p class="previa"></p>
+      <div class="acoes">
+        <button data-acao="md">Baixar .md</button>
+        <button data-acao="txt">.txt</button>
+        <button data-acao="copiar">Copiar</button>
+        <button data-acao="apagar" class="perigo">Apagar</button>
+      </div>
+    </article>
+  </template>
+
+  <script src="../lib/formato.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

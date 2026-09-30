@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Meet falso</title>
+  <style>
+    body { font: 14px system-ui; background: #202124; color: #fff; }
+    div[role="region"] { position: fixed; bottom: 80px; left: 20px; right: 20px; display: none; }
+    .bloco { display: flex; gap: 8px; margin: 4px 0; }
+  </style>
+</head>
+<body>
+  <!-- Imita a página do Meet na estrutura que o content script usa:
+       ícones com texto (call_end, closed_caption_off), a região das legendas
+       e, dentro dela, blocos com [avatar, nome, texto] e dois elementos que
+       não são legenda no fim. Uso: servir a pasta do projeto por HTTP e abrir
+       /testes/meet-falso.html; window.simular() roda a conversa. -->
+  <div class="awLEm">João Pedro</div>
+  <div class="u6vdEc">Reunião de teste</div>
+  <button id="legendas"><span class="google-symbols">closed_caption_off</span></button>
+  <button id="sair" hidden><span class="google-symbols">call_end</span></button>
+
+  <div role="region" tabindex="0" aria-label="Legendas">
+    <div id="blocos">
+      <div class="nao-legenda"><button>Rolar para baixo</button></div>
+      <div class="nao-legenda"></div>
+    </div>
+  </div>
+
+  <script>
+    // Stub mínimo da API chrome que o content script usa.
+    // O "local" sobrevive ao F5 (fica no sessionStorage), como no Chrome.
+    const guardado = { local: JSON.parse(sessionStorage.getItem('local') || '{}'), sync: {} }
+    setInterval(() => sessionStorage.setItem('local', JSON.stringify(guardado.local)), 200)
+    const ouvintes = []
+    const area = (nome) => ({
+      async get(chaves) {
+        if (chaves === null) return { ...guardado[nome] }
+        if (typeof chaves === 'string') return chaves in guardado[nome] ? { [chaves]: guardado[nome][chaves] } : {}
+        const r = {}
+        for (const [k, padrao] of Object.entries(chaves)) r[k] = k in guardado[nome] ? guardado[nome][k] : padrao
+        return r
+      },
+      async set(obj) { Object.assign(guardado[nome], JSON.parse(JSON.stringify(obj))) },
+      async remove(k) { delete guardado[nome][k] }
+    })
+    window.mensagens = []
+    window.chrome = {
+      runtime: {
+        id: 'teste', lastError: null,
+        sendMessage(m, cb) { mensagens.push(m); cb && cb() },
+        onMessage: { addListener: (f) => (window.aoPing = () => new Promise((r) => f({ tipo: 'ping' }, {}, r))) }
+      },
+      storage: { local: area('local'), sync: area('sync'), onChanged: { addListener: (f) => ouvintes.push(f) } }
+    }
+    window.guardado = guardado
+
+    // Botões falsos.
+    document.getElementById('legendas').addEventListener('click', (e) => {
+      const icone = e.currentTarget.firstElementChild
+      const ligar = icone.textContent === 'closed_caption_off'
+      icone.textContent = ligar ? 'closed_caption' : 'closed_caption_off'
+      document.querySelector('[role=region]').style.display = ligar ? 'block' : 'none'
+      window.legendasLigadas = ligar
+    })
+    setTimeout(() => (document.getElementById('sair').hidden = false), 300) // entrou na chamada
+
+    const esperar = (ms) => new Promise((r) => setTimeout(r, ms))
+    const blocos = document.getElementById('blocos')
+
+    function novoBloco(nome) {
+      const bloco = document.createElement('div')
+      bloco.className = 'bloco'
+      bloco.innerHTML = '<div class="avatar"><img alt=""></div><div class="nome"></div><div class="texto"></div>'
+      bloco.children[1].textContent = nome
+      blocos.insertBefore(bloco, blocos.querySelector('.nao-legenda'))
+      return bloco.children[2]
+    }
+
+    // Digita palavra por palavra, mexendo no nó de texto (characterData), como o Meet.
+    async function falar(textoEl, frase) {
+      if (!textoEl.firstChild) textoEl.appendChild(document.createTextNode(''))
+      for (const palavra of frase.split(' ')) {
+        textoEl.firstChild.data = (textoEl.firstChild.data + ' ' + palavra).trim()
+        await esperar(40)
+      }
+    }
+
+    window.falarComo = async (nome, frase) => falar(novoBloco(nome), frase)
+
+    window.simular = async function () {
+      const ana = novoBloco('Ana Souza')
+      await falar(ana, 'Bom dia pessoal vamos falar do contato')
+      const voce = novoBloco('Você')
+      await falar(voce, 'Bom dia Ana pode começar')
+      ana.firstChild.data = 'Bom dia pessoal vamos falar do contrato' // correção num bloco anterior
+      await esperar(100)
+      const ana2 = novoBloco('Ana Souza')
+      await falar(ana2, 'O prazo é sexta feira')
+      // Bloco que já nasce com texto (childList em vez de characterData).
+      const beto = novoBloco('Beto')
+      beto.textContent = 'Fechado então'
+      // O Meet some com o bloco mais velho da tela.
+      ana.parentElement.remove()
+      await esperar(800)
+    }
+  </script>
+  <script src="../extensao/lib/falas.js"></script>
+  <script src="../extensao/meet/seletores.js"></script>
+  <script src="../extensao/meet/meet.js"></script>
+</body>
+</html>

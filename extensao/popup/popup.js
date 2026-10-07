@@ -25,6 +25,27 @@ chrome.storage.sync.get(CONFIG_PADRAO).then((config) => {
   }
 })
 
+// ---------- o Transcritor do PC (a ponte) ----------
+
+const selo = document.getElementById('ponte')
+let ponteLigada = null
+
+function pedirAoPc(dados) {
+  return chrome.runtime.sendMessage({ tipo: 'ponte-pedir', dados }).catch(() => ({ erro: 'sem resposta' }))
+}
+
+async function olharPonte() {
+  const r = await pedirAoPc({ tipo: 'ponte-ola', versao: chrome.runtime.getManifest().version })
+  ponteLigada = Boolean(r && r.tipo === 'ponte-ok')
+  selo.hidden = false
+  selo.classList.toggle('ligada', ponteLigada)
+  selo.textContent = ponteLigada ? 'PC conectado' : 'PC fechado'
+  selo.title = ponteLigada
+    ? `Conectado ao Transcritor do PC${r.versao ? ' ' + r.versao : ''}: as chamadas do Meet vão para ele, com o copiloto.`
+    : 'O Transcritor do PC não está aberto: a extensão transcreve sozinha e baixa o .md no fim.'
+  return ponteLigada
+}
+
 // ---------- lista ----------
 
 async function baixar(reuniao, extensao) {
@@ -91,7 +112,14 @@ async function desenhar() {
 
 const secaoAba = document.getElementById('aba-atual')
 const estadoAba = document.getElementById('aba-estado')
+const avisoAba = document.getElementById('aba-aviso')
 const botaoComecar = document.getElementById('aba-comecar')
+const pareado = document.getElementById('pareado')
+const chaveCopiloto = document.getElementById('copiloto')
+const botaoAbrirPc = document.getElementById('abrir-pc')
+const botaoDiagnostico = document.getElementById('diagnostico')
+let sessaoNoPc = null
+let meetAtivo = false // chamada do Meet sendo transcrita pelas legendas: o áudio da aba sobra
 
 async function olharAba() {
   const [aba] = await chrome.tabs.query({ active: true, currentWindow: true })
@@ -102,10 +130,20 @@ async function olharAba() {
     resposta = await chrome.tabs.sendMessage(aba.id, { tipo: 'ping' })
   } catch {}
   botaoComecar.hidden = Boolean(resposta && resposta.ok)
-  if (!resposta || !resposta.ok) estadoAba.textContent = 'Esta chamada não está sendo transcrita.'
-  else if (resposta.encerrada) estadoAba.textContent = 'Chamada encerrada e salva.'
-  else if (!resposta.naChamada) estadoAba.textContent = 'Esperando você entrar na chamada.'
-  else estadoAba.textContent = `● Transcrevendo esta chamada · ${resposta.falas} ${resposta.falas === 1 ? 'fala' : 'falas'}`
+  if (!resposta || !resposta.ok) estadoAba.textContent = 'não está sendo transcrita'
+  else if (resposta.encerrada) estadoAba.textContent = 'encerrada e salva'
+  else if (!resposta.naChamada) estadoAba.textContent = 'esperando você entrar'
+  else estadoAba.textContent = `● ${resposta.falas} ${resposta.falas === 1 ? 'fala' : 'falas'}${resposta.noPc ? ' · no PC' : ''}`
+  avisoAba.hidden = !(resposta && resposta.avisoIdioma)
+  if (resposta && resposta.avisoIdioma) avisoAba.textContent = resposta.avisoIdioma
+  meetAtivo = Boolean(resposta && resposta.naChamada && !resposta.encerrada)
+  sessaoNoPc = resposta && !resposta.encerrada ? resposta.noPc : null
+  pareado.hidden = !sessaoNoPc
+  if (sessaoNoPc) olharSessaoNoPc()
+  botaoDiagnostico.onclick = async () => {
+    const r = await chrome.tabs.sendMessage(aba.id, { tipo: 'diagnostico' }).catch(() => null)
+    avisar(botaoDiagnostico, r && r.ok ? 'Mandado ao PC' : 'Sem chamada')
+  }
 
   botaoComecar.onclick = async () => {
     botaoComecar.disabled = true
@@ -117,6 +155,29 @@ async function olharAba() {
   }
 }
 
+async function olharSessaoNoPc() {
+  const r = await pedirAoPc({ tipo: 'ponte-sessao', sessao: sessaoNoPc })
+  if (!r || !r.existe) return
+  chaveCopiloto.checked = r.copiloto
+  if (r.idioma_errado && avisoAba.hidden) {
+    avisoAba.hidden = false
+    avisoAba.textContent = 'O programa do PC acha que as legendas estão em outro idioma: no Meet, ⋮ › Configurações › Legendas.'
+  }
+}
+
+chaveCopiloto.addEventListener('change', async () => {
+  chaveCopiloto.disabled = true
+  const r = await pedirAoPc({ tipo: 'ponte-copiloto', sessao: sessaoNoPc, ativo: chaveCopiloto.checked })
+  chaveCopiloto.disabled = false
+  if (r && r.existe) chaveCopiloto.checked = r.copiloto
+})
+
+botaoAbrirPc.addEventListener('click', async () => {
+  const r = await pedirAoPc({ tipo: 'ponte-abrir', sessao: sessaoNoPc })
+  if (r && r.erro) avisar(botaoAbrirPc, 'PC fechado')
+  else window.close()
+})
+
 // ---------- áudio desta aba (pelo Transcritor do PC) ----------
 
 const secaoAudio = document.getElementById('audio-aba')
@@ -127,28 +188,9 @@ const audioLinhas = document.getElementById('audio-linhas')
 const audioUltima = document.getElementById('audio-ultima')
 const botaoAudio = document.getElementById('audio-comecar')
 let abaAtual = null
-let programaAberto = null
 
 // A captura de áudio da aba depende de um programa local, que transcreve com
 // Whisper (não vem com a extensão). Sem ele respondendo, a seção nem aparece.
-function programaDoPcAberto() {
-  return new Promise((resolve) => {
-    let ws
-    const fim = (sim) => {
-      try { ws && ws.close() } catch {}
-      resolve(sim)
-    }
-    try {
-      ws = new WebSocket('ws://127.0.0.1:8766')
-    } catch {
-      return resolve(false)
-    }
-    ws.onopen = () => fim(true)
-    ws.onerror = () => fim(false)
-    setTimeout(() => fim(false), 800)
-  })
-}
-
 async function olharAudio() {
   if (!abaAtual) {
     ;[abaAtual] = await chrome.tabs.query({ active: true, currentWindow: true })
@@ -157,8 +199,9 @@ async function olharAudio() {
   const chave = 'captura:' + abaAtual.id
   const { [chave]: captura, ultimaCaptura } = await chrome.storage.session.get([chave, 'ultimaCaptura'])
   if (!captura) {
-    if (programaAberto === null) programaAberto = await programaDoPcAberto()
-    if (!programaAberto) return
+    if (meetAtivo) return
+    if (ponteLigada === null) await olharPonte()
+    if (!ponteLigada) return
   }
   secaoAudio.hidden = false
   audioParado.hidden = Boolean(captura)
@@ -205,5 +248,6 @@ chrome.storage.onChanged.addListener((_, area) => {
   olharAba()
 })
 desenhar()
-olharAba()
-olharAudio()
+olharPonte()
+  .then(olharAba)
+  .then(olharAudio)

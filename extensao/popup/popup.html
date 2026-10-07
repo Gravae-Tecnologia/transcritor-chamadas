@@ -3,11 +3,17 @@
 <head>
   <meta charset="utf-8">
   <title>Transcritor de Chamadas</title>
+  <link rel="stylesheet" href="../fontes/fontes.css">
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <header>
-    <h1>Transcrições</h1>
+    <img class="marca" src="../icones/48.png" alt="">
+    <div class="nome">
+      <h1>Transcritor</h1>
+      <span>Gravaê</span>
+    </div>
+    <span id="ponte" class="ponte" hidden></span>
     <button id="abrir-opcoes" class="icone" title="Opções" aria-expanded="false">⚙</button>
   </header>
 
@@ -18,22 +24,36 @@
     <label class="campo">Seu nome (no lugar de "Você")
       <input type="text" id="meuNome" placeholder="o nome da sua conta do Google">
     </label>
-    <p class="dica">As legendas saem no idioma escolhido no Meet (Configurações › Legendas). Os arquivos vão para Downloads/Transcricoes.</p>
+    <p class="dica">As legendas saem no idioma escolhido no Meet (⋮ › Configurações › Legendas). Os arquivos vão para Downloads/Transcricoes. Com o Transcritor do PC aberto, a chamada vai para ele e o .md não é baixado.</p>
   </section>
 
-  <section id="aba-atual" hidden>
-    <span id="aba-estado"></span>
-    <button id="aba-comecar" hidden>Transcrever esta chamada</button>
+  <section id="aba-atual" class="cartao" hidden>
+    <div class="linha-topo">
+      <strong>Esta chamada</strong>
+      <span id="aba-estado" class="dica"></span>
+    </div>
+    <p id="aba-aviso" class="aviso" hidden></p>
+    <button id="aba-comecar" class="principal" hidden>Transcrever esta chamada</button>
+    <div id="pareado" hidden>
+      <label class="interruptor">
+        <input type="checkbox" id="copiloto">
+        <span>Copiloto de vendas</span>
+      </label>
+      <div class="acoes">
+        <button id="abrir-pc" class="principal">Abrir no Transcritor</button>
+        <button id="diagnostico" title="Manda ao programa do PC a estrutura das legendas, para ajustar a leitura quando o Google muda o Meet">Diagnóstico</button>
+      </div>
+    </div>
   </section>
 
-  <section id="audio-aba" hidden>
+  <section id="audio-aba" class="cartao" hidden>
     <div class="linha-topo">
       <strong>Áudio desta aba</strong>
       <span id="audio-estado" class="dica"></span>
     </div>
     <div id="audio-parado">
       <label class="dica"><input type="checkbox" id="audio-microfone"> com o meu microfone</label>
-      <button id="audio-comecar">Transcrever o áudio desta aba</button>
+      <button id="audio-comecar" class="principal">Transcrever o áudio</button>
     </div>
     <div id="audio-gravando" hidden>
       <pre id="audio-linhas"></pre>
@@ -42,6 +62,7 @@
     <p id="audio-ultima" class="dica" hidden></p>
   </section>
 
+  <h2>Transcrições</h2>
   <main id="lista"></main>
   <p id="vazio" class="dica" hidden>Nenhuma chamada transcrita ainda. Entre numa chamada do Google Meet e a transcrição começa sozinha.</p>
 

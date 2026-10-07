@@ -9,3 +9,5 @@ __pycache__/
 *.pyc
 node_modules/
 .playwright-mcp/
+testes/teste_interface.py
+testes/teste_ponte.py

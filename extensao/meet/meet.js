@@ -1,5 +1,7 @@
 // Content script do Google Meet: espera a chamada começar, liga as legendas,
-// lê o que aparece nelas e guarda a transcrição no chrome.storage.local.
+// lê o que aparece nelas e guarda a transcrição no chrome.storage.local. Com o
+// Transcritor do PC aberto, manda cada fala para ele também (pela ponte do
+// background.js), e o PC cuida do arquivo e do copiloto.
 (function () {
   const S = SELETORES_MEET
   const CONFIG_PADRAO = { automatico: true, baixarAoSair: true, esconderLegendas: false, meuNome: '' }
@@ -13,6 +15,9 @@
   let encerrada = false
   let pilula = null
   const blocos = new Map() // bloco -> { nomeEl, textoEl }
+  const enviadas = new Map() // índice da fala -> o que o PC já recebeu dela
+  let noPc = null // id da sessão no Transcritor do PC
+  let avisoIdioma = ''
 
   // ---------- utilidades ----------
 
@@ -62,6 +67,128 @@
     return chrome.storage.local.set({ ['reuniao:' + reuniao.id]: reuniao }).catch(() => {})
   }
 
+  // ---------- a ponte com o Transcritor do PC ----------
+
+  function paraPonte(dados) {
+    avisarFundo({ tipo: 'ponte', dados })
+  }
+
+  // Avisa o PC que a chamada existe e manda todas as falas: na primeira vez e
+  // sempre que a ponte volta (o programa reiniciou). O PC ignora o que já tinha.
+  function anunciar() {
+    if (!reuniao || encerrada) return
+    enviadas.clear()
+    const { id, codigo, titulo, url, inicio } = reuniao
+    paraPonte({ tipo: 'meet-inicio', reuniao: { id, codigo, titulo, url, inicio } })
+    enviarFalas(true)
+  }
+
+  // As falas mudam no lugar enquanto a pessoa fala (e o Meet corrige palavras);
+  // só as que mudaram desde o último envio vão de novo. Correção acontece nas
+  // falas recentes, então fora da retomada bastam as últimas 30.
+  function enviarFalas(todas = false) {
+    const falas = reuniao.falas
+    for (let i = todas ? 0 : Math.max(0, falas.length - 30); i < falas.length; i++) {
+      const f = falas[i]
+      const marca = `${f.nome}\u0001${f.texto}\u0001${f.eu ? 1 : 0}`
+      if (enviadas.get(i) === marca) continue
+      enviadas.set(i, marca)
+      paraPonte({ tipo: 'meet-fala', reuniao_id: reuniao.id, i, nome: f.nome, eu: Boolean(f.eu), texto: f.texto, hora: f.hora })
+    }
+  }
+
+  // ---------- diagnóstico ----------
+
+  // A estrutura da área das legendas, resumida: é o que mostra o que o Google
+  // mudou quando a leitura quebra. Vai para o PC (desktop/diagnosticos/), nunca
+  // para fora. Texto cortado em 40 caracteres.
+  function arvore(el, nivel = 0) {
+    const proprio = [...el.childNodes]
+      .filter((n) => n.nodeType === Node.TEXT_NODE)
+      .map((n) => n.data)
+      .join('')
+      .trim()
+    const no = { t: el.tagName.toLowerCase() }
+    if (el.className && typeof el.className === 'string') no.c = el.className.slice(0, 80)
+    for (const [atributo, chave] of [['role', 'r'], ['aria-label', 'a'], ['jsname', 'j']]) {
+      if (el.getAttribute(atributo)) no[chave] = el.getAttribute(atributo).slice(0, 60)
+    }
+    if (proprio) no.x = proprio.length > 40 ? proprio.slice(0, 40) + `… (${proprio.length})` : proprio
+    const filhos = [...el.children]
+    if (filhos.length) {
+      no.f = filhos.length
+      if (nivel < 8) no.k = filhos.slice(-6).map((filho) => arvore(filho, nivel + 1))
+    }
+    return no
+  }
+
+  function caminho(el) {
+    const passos = []
+    while (el && el !== regiao && passos.length < 12) {
+      const pai = el.parentElement
+      passos.unshift(pai ? [...pai.children].indexOf(el) : 0)
+      el = pai
+    }
+    return passos.join('>')
+  }
+
+  function diagnostico(motivo) {
+    if (!reuniao) return null
+    const falas = reuniao.falas
+    return {
+      tipo: 'meet-diagnostico',
+      motivo,
+      reuniao_id: reuniao.id,
+      versao: chrome.runtime.getManifest().version,
+      idioma_navegador: navigator.language,
+      falas: falas.length,
+      maior_fala: falas.reduce((m, f) => Math.max(m, f.texto.length), 0),
+      ultimas: falas.slice(-4).map((f) => ({ nome: f.nome, eu: Boolean(f.eu), n: f.texto.length, fim: f.texto.slice(-120) })),
+      blocos: [...blocos].map(([bloco, { nomeEl, textoEl }]) => ({
+        caminho: caminho(bloco),
+        nome: limparTexto(nomeEl.textContent).slice(0, 40),
+        texto: limparTexto(textoEl.textContent).length,
+        vivo: bloco.isConnected
+      })),
+      regiao: regiao ? arvore(regiao) : null
+    }
+  }
+
+  // ---------- idioma das legendas ----------
+
+  // O Meet escreve as legendas no idioma escolhido nas configurações dele, não
+  // no que se fala. Em inglês numa call em português, sai "Kentucky" no lugar de
+  // "quem tá aqui". Conta palavras curtas que entregam cada idioma.
+  const PALAVRAS = {
+    pt: new Set('que não nao é eu você voce pra para tá ta uma um com isso aqui então entao mas tem gente também tambem do da no na'.split(' ')),
+    en: new Set('the and you is to of that it this what we are for with have i so just like yeah okay'.split(' '))
+  }
+
+  function idiomaDasFalas() {
+    const palavras = reuniao.falas
+      .slice(-40)
+      .map((f) => f.texto)
+      .join(' ')
+      .toLowerCase()
+      .match(/[a-záàâãéêíóôõúç']+/g) || []
+    if (palavras.length < 40) return null
+    const pt = palavras.filter((p) => PALAVRAS.pt.has(p)).length
+    const en = palavras.filter((p) => PALAVRAS.en.has(p)).length
+    if (en > Math.max(4, pt * 1.5)) return 'en'
+    if (pt > Math.max(4, en * 1.5)) return 'pt'
+    return null
+  }
+
+  let idiomaConferido = 0
+  function conferirIdioma() {
+    if (Date.now() - idiomaConferido < 20000) return
+    idiomaConferido = Date.now()
+    const idioma = idiomaDasFalas()
+    if (!idioma) return
+    const esperado = (navigator.language || 'pt').slice(0, 2)
+    avisoIdioma = esperado === 'pt' && idioma === 'en' ? 'Legendas em inglês: no Meet, ⋮ › Configurações › Legendas › Português' : ''
+  }
+
   // ---------- leitura das legendas ----------
 
   function nomeDe(nome) {
@@ -100,15 +227,29 @@
         transcricao.esquecer(bloco)
         continue
       }
-      if (transcricao.atualizar(bloco, nomeDe(nomeEl.textContent), textoEl.textContent)) mudou = true
+      const cru = limparTexto(nomeEl.textContent)
+      const nome = nomeDe(cru)
+      if (transcricao.atualizar(bloco, nome, textoEl.textContent)) {
+        mudou = true
+        const fala = transcricao.falaDoBloco(bloco)
+        if (fala && fala.nome === nome) fala.eu = S.VOCE.includes(cru)
+      }
     }
     if (mudou) {
       reuniao.participantes = [...new Set(reuniao.falas.map((f) => f.nome))]
       salvarLogo()
+      enviarFalas()
+      conferirIdioma()
       atualizarPilula()
+      if (!diagnosticoMandado) {
+        diagnosticoMandado = true
+        // 20 s depois da primeira legenda, com a área já cheia.
+        setTimeout(() => paraPonte(diagnostico('automatico')), 20000)
+      }
     }
   }
 
+  let diagnosticoMandado = false
   let leituraPendente = false
   function aoMudar(mutacoes) {
     for (const m of mutacoes) {
@@ -177,6 +318,7 @@
     lerBlocos()
     if (observador) observador.disconnect()
     reuniao.fim = new Date().toISOString()
+    paraPonte({ tipo: 'meet-fim', reuniao_id: reuniao.id })
     await salvarAgora()
     avisarFundo({ tipo: 'reuniao-encerrada', id: reuniao.id })
     atualizarPilula(reuniao.falas.length ? 'Transcrição salva' : 'Nada foi transcrito')
@@ -223,6 +365,8 @@
     await salvarAgora()
     avisarFundo({ tipo: 'reuniao-iniciada', id: reuniao.id })
     mostrarPilula()
+    atualizarTitulo()
+    anunciar()
 
     ;(sair.closest('button') || sair).addEventListener('click', encerrar, { capture: true })
     window.addEventListener('pagehide', () => {
@@ -251,13 +395,17 @@
     document.getElementById('transcritor-pilula')?.remove()
     pilula = document.createElement('div')
     pilula.id = 'transcritor-pilula'
+    // Tema Gravaê: fundo zinc escuro, ponto no vermelho da marca.
     pilula.style.cssText = [
       'position:fixed', 'top:12px', 'left:12px', 'z-index:2147483647',
-      'display:flex', 'align-items:center', 'gap:8px', 'padding:6px 12px',
-      'border-radius:999px', 'background:rgba(32,33,36,.85)', 'color:#fff',
-      'font:500 13px/1.2 system-ui,sans-serif', 'pointer-events:none'
+      'display:flex', 'align-items:center', 'gap:8px', 'padding:6px 12px 6px 10px', 'max-width:60vw',
+      'border-radius:999px', 'background:rgba(24,24,27,.92)', 'border:1px solid #3f3f46', 'color:#f2f2fa',
+      'font:600 12.5px/1.25 "Segoe UI",system-ui,sans-serif',
+      'box-shadow:0 4px 14px rgba(0,0,0,.35)', 'pointer-events:none'
     ].join(';')
-    pilula.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:#ea4335"></span><span></span>'
+    pilula.innerHTML =
+      '<span style="flex:none;width:9px;height:9px;border-radius:50%;background:#d30404"></span>' +
+      '<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>'
     document.documentElement.appendChild(pilula)
     atualizarPilula()
   }
@@ -265,9 +413,10 @@
   function atualizarPilula(aviso) {
     if (!pilula) return
     const n = reuniao ? reuniao.falas.length : 0
-    const texto = aviso || (n ? `Transcrevendo · ${n} ${n === 1 ? 'fala' : 'falas'}` : 'Transcrevendo · esperando legendas')
+    const base = n ? `Transcrevendo · ${n} ${n === 1 ? 'fala' : 'falas'}` : 'Transcrevendo · esperando legendas'
+    const texto = aviso || avisoIdioma || base + (noPc ? ' · no PC' : '')
     pilula.lastChild.textContent = texto
-    pilula.firstChild.style.background = encerrada ? '#34a853' : aviso ? '#fbbc04' : '#ea4335'
+    pilula.firstChild.style.background = encerrada ? '#1fb055' : aviso || avisoIdioma ? '#f59e0b' : '#d30404'
   }
 
   chrome.storage.onChanged.addListener((mudancas, area) => {
@@ -279,8 +428,31 @@
   // O fundo e o popup perguntam se já tem transcrição rodando nesta aba antes
   // de injetar o script de novo.
   chrome.runtime.onMessage.addListener((mensagem, _remetente, responder) => {
+    if (mensagem.tipo === 'ponte-conectada') return anunciar()
+    if (mensagem.tipo === 'ponte-caiu') {
+      noPc = null
+      return atualizarPilula()
+    }
+    if (mensagem.tipo === 'ponte-sessao') {
+      if (reuniao && mensagem.reuniao_id === reuniao.id) noPc = mensagem.sessao
+      return atualizarPilula()
+    }
+    if (mensagem.tipo === 'diagnostico') {
+      const dados = diagnostico('pedido')
+      if (dados) paraPonte(dados)
+      responder({ ok: Boolean(dados) })
+      return
+    }
     if (mensagem.tipo !== 'ping') return
-    responder({ ok: true, falas: reuniao ? reuniao.falas.length : 0, naChamada: Boolean(reuniao), encerrada })
+    responder({
+      ok: true,
+      falas: reuniao ? reuniao.falas.length : 0,
+      naChamada: Boolean(reuniao),
+      encerrada,
+      reuniao: reuniao ? reuniao.id : null,
+      noPc,
+      avisoIdioma
+    })
   })
 
   iniciar()

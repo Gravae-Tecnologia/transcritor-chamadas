@@ -1,10 +1,19 @@
 {
   "manifest_version": 3,
   "name": "Transcritor de Chamadas",
-  "version": "0.3.1",
-  "description": "Transcreve as chamadas do Google Meet pelas legendas, com o nome de quem falou.",
-  "permissions": ["storage", "unlimitedStorage", "downloads", "scripting", "tabCapture", "offscreen"],
-  "host_permissions": ["https://meet.google.com/*"],
+  "version": "0.4.0",
+  "description": "Transcreve as chamadas do Google Meet pelas legendas, com o nome de quem falou. Com o Transcritor do PC aberto, a chamada vai para ele.",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "downloads",
+    "scripting",
+    "tabCapture",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "https://meet.google.com/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
@@ -13,19 +22,27 @@
     "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icones/16.png",
+      "32": "icones/32.png",
       "48": "icones/48.png",
       "128": "icones/128.png"
     }
   },
   "icons": {
     "16": "icones/16.png",
+    "32": "icones/32.png",
     "48": "icones/48.png",
     "128": "icones/128.png"
   },
   "content_scripts": [
     {
-      "matches": ["https://meet.google.com/*"],
-      "js": ["lib/falas.js", "meet/seletores.js", "meet/meet.js"],
+      "matches": [
+        "https://meet.google.com/*"
+      ],
+      "js": [
+        "lib/falas.js",
+        "meet/seletores.js",
+        "meet/meet.js"
+      ],
       "run_at": "document_idle"
     }
   ]

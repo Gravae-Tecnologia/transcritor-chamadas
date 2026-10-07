@@ -47,9 +47,9 @@
     window.mensagens = []
     window.chrome = {
       runtime: {
-        id: 'teste', lastError: null,
+        id: 'teste', lastError: null, getManifest: () => ({ version: 'teste' }),
         sendMessage(m, cb) { mensagens.push(m); cb && cb() },
-        onMessage: { addListener: (f) => (window.aoPing = () => new Promise((r) => f({ tipo: 'ping' }, {}, r))) }
+        onMessage: { addListener: (f) => { window.aoPing = () => new Promise((r) => f({ tipo: 'ping' }, {}, r)); window.mandar = (m) => new Promise((r) => { f(m, {}, r); setTimeout(r, 50) }) } }
       },
       storage: { local: area('local'), sync: area('sync'), onChanged: { addListener: (f) => ouvintes.push(f) } }
     }

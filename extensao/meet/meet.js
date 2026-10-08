@@ -1,7 +1,6 @@
 // Content script do Google Meet: espera a chamada começar, liga as legendas,
-// lê o que aparece nelas e guarda a transcrição no chrome.storage.local. Com o
-// Transcritor do PC aberto, manda cada fala para ele também (pela ponte do
-// background.js), e o PC cuida do arquivo e do copiloto.
+// lê o que aparece nelas e guarda a transcrição no chrome.storage.local. Cada
+// fala vai também para o service worker, onde roda o copiloto de vendas.
 (function () {
   const S = SELETORES_MEET
   const CONFIG_PADRAO = { automatico: true, baixarAoSair: true, esconderLegendas: false, meuNome: '' }
@@ -15,8 +14,8 @@
   let encerrada = false
   let pilula = null
   const blocos = new Map() // bloco -> { nomeEl, textoEl }
-  const enviadas = new Map() // índice da fala -> o que o PC já recebeu dela
-  let noPc = null // id da sessão no Transcritor do PC
+  const enviadas = new Map() // índice da fala -> o que o copiloto já recebeu dela
+  let ultimoSinal = Date.now() // a última vez que a call deu sinal de vida
   let avisoIdioma = ''
 
   // ---------- utilidades ----------
@@ -67,19 +66,18 @@
     return chrome.storage.local.set({ ['reuniao:' + reuniao.id]: reuniao }).catch(() => {})
   }
 
-  // ---------- a ponte com o Transcritor do PC ----------
+  // ---------- as falas para o copiloto ----------
 
-  function paraPonte(dados) {
-    avisarFundo({ tipo: 'ponte', dados })
+  function paraCopiloto(dados) {
+    avisarFundo({ tipo: 'meet', dados })
   }
 
-  // Avisa o PC que a chamada existe e manda todas as falas: na primeira vez e
-  // sempre que a ponte volta (o programa reiniciou). O PC ignora o que já tinha.
+  // Avisa o service worker que a chamada existe e manda as falas que já tem.
   function anunciar() {
     if (!reuniao || encerrada) return
     enviadas.clear()
     const { id, codigo, titulo, url, inicio } = reuniao
-    paraPonte({ tipo: 'meet-inicio', reuniao: { id, codigo, titulo, url, inicio } })
+    paraCopiloto({ tipo: 'meet-inicio', reuniao: { id, codigo, titulo, url, inicio } })
     enviarFalas(true)
   }
 
@@ -93,15 +91,15 @@
       const marca = `${f.nome}\u0001${f.texto}\u0001${f.eu ? 1 : 0}`
       if (enviadas.get(i) === marca) continue
       enviadas.set(i, marca)
-      paraPonte({ tipo: 'meet-fala', reuniao_id: reuniao.id, i, nome: f.nome, eu: Boolean(f.eu), texto: f.texto, hora: f.hora })
+      paraCopiloto({ tipo: 'meet-fala', reuniao_id: reuniao.id, i, nome: f.nome, eu: Boolean(f.eu), texto: f.texto, hora: f.hora })
     }
   }
 
   // ---------- diagnóstico ----------
 
   // A estrutura da área das legendas, resumida: é o que mostra o que o Google
-  // mudou quando a leitura quebra. Vai para o PC (desktop/diagnosticos/), nunca
-  // para fora. Texto cortado em 40 caracteres.
+  // mudou quando a leitura quebra. O popup copia (botão Diagnóstico) para mandar
+  // a quem cuida da extensão. Texto cortado em 40 caracteres.
   function arvore(el, nivel = 0) {
     const proprio = [...el.childNodes]
       .filter((n) => n.nodeType === Node.TEXT_NODE)
@@ -197,15 +195,31 @@
     return limpo
   }
 
-  // A partir de um texto que mudou, acha o bloco da legenda: o texto fica
-  // num elemento cujo irmão anterior é o nome de quem fala, e os dois moram
-  // dentro do bloco.
-  function registrarTexto(no) {
+  // O bloco de uma fala tem duas partes: em cima a foto e o nome, embaixo o
+  // texto. Subindo a partir do texto até achar esse formato, a leitura não
+  // depende de como o texto está aninhado lá dentro.
+  function acharBloco(no) {
+    let el = no.parentElement
+    while (el && el !== regiao && regiao.contains(el)) {
+      const partes = [...el.children]
+      const textoEl = partes[partes.length - 1]
+      const antes = partes.slice(0, -1)
+      // A parte do texto nunca tem foto: se tem, "el" é a caixa com todos os blocos.
+      if (antes.length && textoEl.contains(no) && !textoEl.querySelector('img') && antes.some((p) => p.matches('img') || p.querySelector('img'))) {
+        // No Meet, foto e nome ficam juntos; senão, o nome é o que vem logo antes do texto.
+        return { bloco: el, nomeEl: antes[antes.length - 1], textoEl }
+      }
+      el = el.parentElement
+    }
+    // Sem foto: o jeito antigo, com o nome logo antes do texto.
     const textoEl = no.parentElement
-    const nomeEl = textoEl && textoEl.previousElementSibling
-    const bloco = textoEl && textoEl.parentElement
+    return { textoEl, nomeEl: textoEl && textoEl.previousElementSibling, bloco: textoEl && textoEl.parentElement }
+  }
+
+  function registrarTexto(no) {
+    if (!regiao || !limparTexto(no.data)) return
+    const { bloco, nomeEl, textoEl } = acharBloco(no)
     if (!nomeEl || !bloco || bloco === regiao || !regiao.contains(bloco) || blocos.has(bloco)) return
-    if (!limparTexto(no.data)) return
     const nome = limparTexto(nomeEl.textContent)
     if (!nome || nome.length > 80 || !limparTexto(textoEl.textContent)) return
     // Botões da área de legendas ("Ir para o fim") têm um ícone no lugar do
@@ -241,15 +255,9 @@
       enviarFalas()
       conferirIdioma()
       atualizarPilula()
-      if (!diagnosticoMandado) {
-        diagnosticoMandado = true
-        // 20 s depois da primeira legenda, com a área já cheia.
-        setTimeout(() => paraPonte(diagnostico('automatico')), 20000)
-      }
     }
   }
 
-  let diagnosticoMandado = false
   let leituraPendente = false
   function aoMudar(mutacoes) {
     for (const m of mutacoes) {
@@ -267,19 +275,46 @@
     }, 300)
   }
 
-  // O Meet às vezes troca a área das legendas por outra; a cada 2 s confere
-  // se é a mesma e, se não for, passa a observar a nova.
+  // A área das legendas. O Meet tem outras "regiões" (chat, pessoas,
+  // apresentação): em 07/10 a extensão passou a observar uma delas no meio da
+  // call e só as primeiras falas foram salvas. Agora vale a que se chama
+  // "Legendas" (ou Captions, Subtítulos…), e ela não é trocada enquanto existir.
+  function ehRegiaoDeLegendas(el) {
+    return S.ROTULO_LEGENDAS.test(el.getAttribute('aria-label') || '')
+  }
+
+  let semRegiao = 0
   function vigiarRegiao() {
-    const atual = document.querySelector(S.REGIAO_LEGENDAS)
-    if (!atual || atual === regiao) return
+    const rotulada = () => [...document.querySelectorAll(S.REGIOES)].find(ehRegiaoDeLegendas)
+    if (regiao && regiao.isConnected) {
+      semRegiao = 0
+      if (ehRegiaoDeLegendas(regiao)) return
+      // A atual não tem nome de legendas: troca só se aparecer uma que tenha.
+      const melhor = rotulada()
+      if (melhor) observar(melhor)
+      return
+    }
+    // Ainda não achou, ou o Meet tirou a área da tela (refaz quando alguém apresenta).
+    semRegiao++
+    const nova = rotulada()
+    if (nova) return observar(nova)
+    // Meet num idioma sem nome conhecido: a primeira região com tabindex, mas só
+    // no começo ou depois de 6 s sem a anterior.
+    const qualquer = document.querySelector(S.REGIAO_LEGENDAS)
+    if (qualquer && (!regiao || semRegiao >= 3)) observar(qualquer)
+  }
+
+  function observar(nova) {
     if (observador) observador.disconnect()
-    regiao = atual
+    regiao = nova
     observador = new MutationObserver(aoMudar)
     observador.observe(regiao, { subtree: true, childList: true, characterData: true })
     regiao.style.opacity = config.esconderLegendas ? '0' : ''
+    // Área refeita: as legendas que ainda estão nela continuam as falas já
+    // guardadas, em vez de virar falas repetidas.
+    transcricao.retomar()
     registrarTextosDentro(regiao)
     lerBlocos()
-    // O que estava na tela já foi casado com as falas guardadas.
     transcricao.fimDaRetomada()
   }
 
@@ -317,8 +352,8 @@
     encerrada = true
     lerBlocos()
     if (observador) observador.disconnect()
-    reuniao.fim = new Date().toISOString()
-    paraPonte({ tipo: 'meet-fim', reuniao_id: reuniao.id })
+    // O fim é a última vez que a call deu sinal (a aba pode ter ficado em segundo plano).
+    reuniao.fim = new Date(Math.min(Date.now(), ultimoSinal + 10000)).toISOString()
     await salvarAgora()
     avisarFundo({ tipo: 'reuniao-encerrada', id: reuniao.id })
     atualizarPilula(reuniao.falas.length ? 'Transcrição salva' : 'Nada foi transcrito')
@@ -377,13 +412,30 @@
     ligarLegendas()
 
     let semBotaoSair = 0
+    let legendasDesligadas = 0
+    let ultimaReligada = 0
     const vigia = setInterval(() => {
       if (encerrada || !extensaoViva()) return clearInterval(vigia)
       vigiarRegiao()
       atualizarTitulo()
       // Saiu da chamada sem clicar em sair (caiu, foi removido, a chamada acabou).
-      semBotaoSair = icone(S.ICONE_SAIR) ? 0 : semBotaoSair + 1
-      if (semBotaoSair >= 3) encerrar()
+      // Com a aba em segundo plano ou o Meet na janelinha flutuante, o botão de
+      // sair some da página sem a call ter acabado: aí não conta.
+      const pip = window.documentPictureInPicture && window.documentPictureInPicture.window
+      if (icone(S.ICONE_SAIR) || document.hidden || pip) {
+        semBotaoSair = 0
+        ultimoSinal = Date.now()
+      } else semBotaoSair++
+      if (semBotaoSair >= 5) encerrar()
+      // As legendas desligaram no meio da call: religa (a transcrição depende delas).
+      legendasDesligadas = icone(S.ICONE_LEGENDA_DESLIGADA) && !icone(S.ICONE_LEGENDA_LIGADA) ? legendasDesligadas + 1 : 0
+      if (config.automatico && legendasDesligadas >= 2 && Date.now() - ultimaReligada > 30000) {
+        ultimaReligada = Date.now()
+        const botao = icone(S.ICONE_LEGENDA_DESLIGADA)
+        ;(botao.closest('button') || botao).click()
+        atualizarPilula('Legendas religadas para continuar transcrevendo')
+        setTimeout(() => atualizarPilula(), 6000)
+      }
     }, 2000)
     vigiarRegiao()
   }
@@ -414,7 +466,7 @@
     if (!pilula) return
     const n = reuniao ? reuniao.falas.length : 0
     const base = n ? `Transcrevendo · ${n} ${n === 1 ? 'fala' : 'falas'}` : 'Transcrevendo · esperando legendas'
-    const texto = aviso || avisoIdioma || base + (noPc ? ' · no PC' : '')
+    const texto = aviso || avisoIdioma || base
     pilula.lastChild.textContent = texto
     pilula.firstChild.style.background = encerrada ? '#1fb055' : aviso || avisoIdioma ? '#f59e0b' : '#d30404'
   }
@@ -428,19 +480,9 @@
   // O fundo e o popup perguntam se já tem transcrição rodando nesta aba antes
   // de injetar o script de novo.
   chrome.runtime.onMessage.addListener((mensagem, _remetente, responder) => {
-    if (mensagem.tipo === 'ponte-conectada') return anunciar()
-    if (mensagem.tipo === 'ponte-caiu') {
-      noPc = null
-      return atualizarPilula()
-    }
-    if (mensagem.tipo === 'ponte-sessao') {
-      if (reuniao && mensagem.reuniao_id === reuniao.id) noPc = mensagem.sessao
-      return atualizarPilula()
-    }
     if (mensagem.tipo === 'diagnostico') {
       const dados = diagnostico('pedido')
-      if (dados) paraPonte(dados)
-      responder({ ok: Boolean(dados) })
+      responder({ ok: Boolean(dados), dados })
       return
     }
     if (mensagem.tipo !== 'ping') return
@@ -450,7 +492,6 @@
       naChamada: Boolean(reuniao),
       encerrada,
       reuniao: reuniao ? reuniao.id : null,
-      noPc,
       avisoIdioma
     })
   })

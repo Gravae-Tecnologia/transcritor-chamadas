@@ -1,0 +1,67 @@
+body { min-height: 100vh; display: flex; flex-direction: column; }
+
+.topo {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px; background: var(--fundo); border-bottom: 1px solid var(--borda);
+}
+.marca { width: 30px; height: 30px; }
+.nome { display: grid; line-height: 1.15; min-width: 0; margin-right: auto; }
+.nome h1 { font-size: 16px; }
+.nome span { font-size: 12px; color: var(--suave); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+main { flex: 1; display: grid; gap: 10px; align-content: start; padding: 12px 14px; }
+.cartao { padding: 12px 14px; }
+.linha { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.fraco { color: var(--fraco); font-size: 12px; }
+.aviso-grande p { margin: 6px 0 10px; color: var(--texto-2); }
+
+.fala .barra { height: 8px; border-radius: 999px; background: var(--superficie-2); overflow: hidden; }
+.fala .barra span { display: block; height: 100%; background: var(--vermelho-texto); transition: width .4s; }
+.fala .legenda { display: flex; justify-content: space-between; font-size: 12px; color: var(--suave); margin-top: 4px; }
+.fala.demais .barra span { background: var(--ambar); }
+
+.sugestao { position: relative; overflow: hidden; padding-left: 18px; }
+.sugestao::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--vermelho); }
+.sugestao .rotulo { color: var(--vermelho-texto); display: flex; align-items: center; gap: 8px; }
+.sugestao .frase { margin: 8px 0 12px; font-size: 19px; line-height: 1.32; font-weight: 600; color: #fff; }
+.sugestao .rodape { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sugestao.nova { animation: chegou 1s; }
+@keyframes chegou { from { box-shadow: 0 0 0 3px var(--vermelho); } to { box-shadow: 0 0 0 0 transparent; } }
+
+.objecao { background: var(--ambar-fundo); border-color: #f5b83340; }
+.objecao .rotulo { color: var(--ambar); }
+.objecao .rotulo span { color: var(--texto); letter-spacing: .02em; }
+.objecao p { margin: 6px 0 0; color: var(--texto-2); }
+.objecao .evitar { font-size: 12px; color: var(--suave); }
+
+.alertas { display: grid; gap: 6px; }
+.alerta { padding: 9px 12px; border-radius: 8px; background: var(--vermelho-fundo); color: var(--vermelho-texto); font-weight: 600; font-size: 13px; border: 1px solid #d3040440; }
+.alerta.compra { background: var(--verde-fundo); color: var(--verde-texto); border-color: #1fb05540; }
+
+.erro { color: var(--vermelho-texto); font-size: 13px; }
+
+.roteiro h3 { font-size: 14px; margin-bottom: 6px; display: flex; justify-content: space-between; }
+.etapas { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.etapa > summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 6px 6px; border-radius: 6px; cursor: pointer; }
+.etapa > summary::-webkit-details-marker { display: none; }
+.etapa > summary:hover { background: var(--superficie-2); }
+.etapa .ponto { width: 12px; height: 12px; border-radius: 50%; flex: none; border: 2px solid var(--contorno); }
+.etapa[data-status="1"] .ponto { border-color: var(--ambar); background: var(--ambar); }
+.etapa[data-status="2"] .ponto { border-color: var(--verde); background: var(--verde); }
+.etapa[data-status="2"] .nome { color: var(--suave); }
+.etapa.agora > summary { background: var(--superficie-2); }
+.etapa.agora .nome { font-weight: 700; }
+.etapa .detalhe { padding: 2px 8px 10px 30px; font-size: 13px; color: var(--suave); }
+.etapa .detalhe ul { margin: 6px 0; padding-left: 18px; color: var(--texto-2); }
+
+.resumo .md { margin-top: 6px; }
+.resumo .md h2:first-child { display: none; } /* o título já está no topo */
+
+.conversa-caixa summary { cursor: pointer; }
+.conversa { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; max-height: 340px; overflow: auto; }
+.conversa li { font-size: 13px; color: var(--texto-2); }
+.conversa li b { display: block; font-size: 12px; color: var(--suave); }
+.conversa li.vendedor b { color: var(--vermelho-texto); }
+
+.pe { padding: 8px 14px 14px; border-top: 1px solid var(--borda); }

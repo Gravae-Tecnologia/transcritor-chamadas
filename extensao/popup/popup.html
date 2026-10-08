@@ -13,7 +13,7 @@
       <h1>Transcritor</h1>
       <span>Gravaê</span>
     </div>
-    <span id="ponte" class="ponte" hidden></span>
+    <button id="abrir-agenda" class="icone" title="Agenda de calls"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/><path d="M7.5 13.5h3v3h-3z" fill="currentColor" stroke="none"/></svg></button>
     <button id="abrir-opcoes" class="icone" title="Opções" aria-expanded="false">⚙</button>
   </header>
 
@@ -24,7 +24,18 @@
     <label class="campo">Seu nome (no lugar de "Você")
       <input type="text" id="meuNome" placeholder="o nome da sua conta do Google">
     </label>
-    <p class="dica">As legendas saem no idioma escolhido no Meet (⋮ › Configurações › Legendas). Os arquivos vão para Downloads/Transcricoes. Com o Transcritor do PC aberto, a chamada vai para ele e o .md não é baixado.</p>
+    <p class="dica">As legendas saem no idioma escolhido no Meet (⋮ › Configurações › Legendas). Os arquivos vão para Downloads/Transcricoes.</p>
+    <div class="separador"></div>
+    <strong class="subtitulo">Copiloto de vendas</strong>
+    <label><input type="checkbox" id="copilotoAutomatico"> Ligar o copiloto sozinho em toda call</label>
+    <label class="campo">Chave da OpenRouter
+      <input type="password" id="chaveOpenrouter" placeholder="sk-or-v1-…" autocomplete="off" spellcheck="false">
+    </label>
+    <div class="campo">
+      <span>Roteiro: <b id="roteiro-nome">—</b></span>
+      <label class="arquivo">Importar outro roteiro (.json) <input type="file" id="roteiro-arquivo" accept=".json,application/json"></label>
+    </div>
+    <p class="dica">A chave fica só neste navegador. O copiloto custa uns US$ 0,03 por call (leituras do Jev, sugestões e o resumo).</p>
   </section>
 
   <section id="aba-atual" class="cartao" hidden>
@@ -35,31 +46,16 @@
     <p id="aba-aviso" class="aviso" hidden></p>
     <button id="aba-comecar" class="principal" hidden>Transcrever esta chamada</button>
     <div id="pareado" hidden>
-      <label class="interruptor">
+      <label class="interruptor" id="interruptor-copiloto">
         <input type="checkbox" id="copiloto">
         <span>Copiloto de vendas</span>
       </label>
+      <p id="copiloto-falta" class="dica" hidden>Para usar o copiloto, preencha a chave da OpenRouter em ⚙.</p>
       <div class="acoes">
-        <button id="abrir-pc" class="principal">Abrir no Transcritor</button>
-        <button id="diagnostico" title="Manda ao programa do PC a estrutura das legendas, para ajustar a leitura quando o Google muda o Meet">Diagnóstico</button>
+        <button id="abrir-copiloto" class="principal">Abrir o copiloto</button>
+        <button id="diagnostico" title="Copia a estrutura das legendas desta chamada, para mandar a quem cuida da extensão quando a transcrição falhar">Diagnóstico</button>
       </div>
     </div>
-  </section>
-
-  <section id="audio-aba" class="cartao" hidden>
-    <div class="linha-topo">
-      <strong>Áudio desta aba</strong>
-      <span id="audio-estado" class="dica"></span>
-    </div>
-    <div id="audio-parado">
-      <label class="dica"><input type="checkbox" id="audio-microfone"> com o meu microfone</label>
-      <button id="audio-comecar" class="principal">Transcrever o áudio</button>
-    </div>
-    <div id="audio-gravando" hidden>
-      <pre id="audio-linhas"></pre>
-      <button id="audio-parar" class="perigo">Parar e salvar</button>
-    </div>
-    <p id="audio-ultima" class="dica" hidden></p>
   </section>
 
   <h2>Transcrições</h2>
@@ -69,7 +65,7 @@
   <template id="modelo">
     <article class="reuniao">
       <div class="cabeca">
-        <strong class="titulo"></strong>
+        <button class="titulo" type="button" title="Abrir na agenda"></button>
         <span class="estado"></span>
       </div>
       <div class="meta"></div>

@@ -1,0 +1,93 @@
+/* Tema Gravaê, comum ao painel do copiloto e à agenda (o mesmo do popup e dos
+   sites da Gravaê). Escuro sempre, vermelho da marca nos botões e no "ao vivo",
+   coral para texto vermelho (mais legível sobre o escuro). */
+@import url('../fontes/fontes.css');
+
+:root {
+  color-scheme: dark;
+  --fundo: #09090b;
+  --superficie: #18181b;
+  --superficie-2: #27272a;
+  --superficie-3: #2b2b31;
+  --texto: #f2f2fa;
+  --texto-2: #e1e1e6;
+  --suave: #a8a8b3;
+  --fraco: #7c7c86;
+  --borda: #ffffff14;
+  --contorno: #52525b;
+  --vermelho: #d30404;
+  --vermelho-medio: #a90303;
+  --vermelho-texto: #ff7a6b;
+  --vermelho-fundo: #d304041f;
+  --ambar: #f5b833;
+  --ambar-fundo: #f5b83314;
+  --verde: #1fb055;
+  --verde-texto: #4ade80;
+  --verde-fundo: #1fb0551f;
+  --titulo: "Space Grotesk", system-ui, sans-serif;
+  --corpo: "Open Sans", system-ui, sans-serif;
+  --raio: 0.625rem;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body { margin: 0; }
+body {
+  background: var(--fundo);
+  color: var(--texto);
+  font: 14px/1.5 var(--corpo);
+}
+
+h1, h2, h3, h4 { font-family: var(--titulo); margin: 0; }
+a { color: var(--vermelho-texto); }
+code { font: 12px ui-monospace, Consolas, monospace; background: var(--superficie-2); padding: 1px 5px; border-radius: 5px; }
+
+button {
+  font: 600 13px var(--corpo);
+  color: var(--texto);
+  background: var(--superficie-2);
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+button:hover { border-color: var(--contorno); }
+button:disabled { opacity: .5; cursor: default; }
+button.principal { background: var(--vermelho); border-color: var(--vermelho); color: #fff; }
+button.principal:hover { background: var(--vermelho-medio); }
+button.discreto { background: transparent; border-color: transparent; color: var(--suave); }
+button.discreto:hover { color: var(--texto); background: var(--superficie-2); }
+button.perigo { background: transparent; color: var(--vermelho-texto); }
+
+.cartao {
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+}
+.rotulo { font: 700 11px var(--titulo); letter-spacing: .06em; text-transform: uppercase; color: var(--suave); }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 9px; border-radius: 999px;
+  font: 600 11px var(--corpo); letter-spacing: 0; text-transform: none;
+  background: var(--superficie-2); color: var(--texto-2);
+}
+.chip.vivo { background: var(--vermelho-fundo); color: var(--vermelho-texto); }
+.chip.vivo::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--vermelho); animation: pulsar 1.6s infinite; }
+.chip.ok { background: var(--verde-fundo); color: var(--verde-texto); }
+@keyframes pulsar { 50% { opacity: .35; } }
+
+.interruptor { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; }
+.interruptor input { appearance: none; margin: 0; width: 34px; height: 20px; border-radius: 999px; background: var(--contorno); position: relative; cursor: pointer; transition: background .15s; flex: none; }
+.interruptor input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.interruptor input:checked { background: var(--vermelho); }
+.interruptor input:checked::after { transform: translateX(14px); }
+
+/* O resumo do copiloto, vindo do Markdown. */
+.md h2 { font-size: 18px; margin: 0 0 8px; }
+.md h3 { font-size: 15px; margin: 18px 0 6px; color: var(--texto); }
+.md h4, .md h5 { font-size: 13px; margin: 14px 0 4px; }
+.md p { margin: 6px 0; color: var(--texto-2); }
+.md ul, .md ol { margin: 6px 0; padding-left: 20px; color: var(--texto-2); }
+.md li { margin: 3px 0; }
+.md strong { color: var(--texto); }

@@ -1,13 +1,11 @@
-# Só a extensão do Chrome é pública. O programa do PC (transcrição local com
-# Whisper, copiloto de vendas e roteiros) fica fora do repositório.
+# Arquivos locais que não fazem parte da extensão.
 desktop/
-testes/teste_desktop.py
-testes/teste_pessoas.py
-testes/teste_copiloto.py
+testes/*.py
 
 __pycache__/
 *.pyc
 node_modules/
 .playwright-mcp/
-testes/teste_interface.py
-testes/teste_ponte.py
+
+# Roteiro de vendas da Gravaê (estratégia comercial e preços): fora do repositório público.
+extensao/copiloto/roteiro.json

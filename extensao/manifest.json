@@ -1,18 +1,18 @@
 {
   "manifest_version": 3,
   "name": "Transcritor de Chamadas",
-  "version": "0.4.0",
-  "description": "Transcreve as chamadas do Google Meet pelas legendas, com o nome de quem falou. Com o Transcritor do PC aberto, a chamada vai para ele.",
+  "version": "0.6.0",
+  "description": "Transcreve as chamadas do Google Meet pelas legendas, com o nome de quem falou, e tem um copiloto de vendas e uma agenda das calls.",
   "permissions": [
     "storage",
     "unlimitedStorage",
     "downloads",
     "scripting",
-    "tabCapture",
-    "offscreen"
+    "sidePanel"
   ],
   "host_permissions": [
-    "https://meet.google.com/*"
+    "https://meet.google.com/*",
+    "https://openrouter.ai/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -45,5 +45,8 @@
       ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "side_panel": {
+    "default_path": "copiloto/painel.html"
+  }
 }

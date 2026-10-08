@@ -1,4 +1,4 @@
-/* Tema Gravaê, o mesmo da janela do Transcritor do PC: escuro sempre, vermelho
+/* Tema Gravaê, o mesmo dos sites da Gravaê: escuro sempre, vermelho
    da marca nos botões e no "ao vivo", coral para texto vermelho (mais legível
    sobre o escuro). */
 :root {
@@ -44,20 +44,6 @@ h1 { font: 700 16px/1.1 var(--titulo); margin: 0; }
 .nome span { font: 600 11px var(--titulo); color: var(--vermelho-texto); letter-spacing: .04em; text-transform: uppercase; }
 h2 { font: 600 12px var(--titulo); color: var(--suave); text-transform: uppercase; letter-spacing: .05em; margin: 4px 0 8px; }
 
-.ponte {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 9px;
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: 999px;
-  color: var(--suave);
-  background: var(--superficie-2);
-}
-.ponte::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--fraco); }
-.ponte.ligada { color: var(--verde-texto); background: #1fb0551f; }
-.ponte.ligada::before { background: var(--verde); }
 
 button {
   font: 600 12px var(--corpo);
@@ -97,6 +83,12 @@ button.perigo { color: var(--vermelho-texto); background: transparent; margin-le
 input[type="checkbox"] { accent-color: var(--vermelho); }
 
 .dica { color: var(--suave); font-size: 12px; margin: 0; }
+.separador { height: 1px; background: var(--borda); margin: 4px 0; }
+.subtitulo { font: 600 13px var(--titulo); }
+#opcoes .campo span { display: block; }
+.arquivo { color: var(--vermelho-texto); cursor: pointer; font-size: 12px; font-weight: 600; }
+.arquivo input { display: none; }
+button.icone svg { display: block; }
 .aviso { margin: 0; padding: 6px 9px; font-size: 12px; color: var(--ambar); background: var(--ambar-fundo); border-radius: 8px; }
 
 .linha-topo { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
@@ -110,26 +102,13 @@ input[type="checkbox"] { accent-color: var(--vermelho); }
 .interruptor input:checked { background: var(--vermelho); }
 .interruptor input:checked::after { transform: translateX(14px); }
 
-#audio-parado { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-#audio-gravando { display: grid; gap: 6px; }
-#audio-gravando .perigo { margin-left: 0; justify-self: start; }
-#audio-linhas {
-  margin: 0;
-  padding: 6px 8px;
-  max-height: 96px;
-  overflow: auto;
-  white-space: pre-wrap;
-  font: 12px/1.4 ui-monospace, Consolas, monospace;
-  color: var(--suave);
-  background: var(--fundo);
-  border-radius: 8px;
-}
 
 main { display: grid; gap: 8px; }
 
 .reuniao { background: var(--superficie); border: 1px solid var(--borda); border-radius: var(--raio); padding: 9px 12px; }
 .cabeca { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
-.titulo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--titulo); }
+.titulo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 13px var(--titulo); color: var(--texto); background: none; border: 0; padding: 0; text-align: left; min-width: 0; }
+.titulo:hover { color: var(--vermelho-texto); }
 .estado { font-size: 11px; font-weight: 600; white-space: nowrap; color: var(--verde-texto); }
 .estado.ao-vivo { color: var(--vermelho-texto); }
 .meta { color: var(--suave); font-size: 12px; }

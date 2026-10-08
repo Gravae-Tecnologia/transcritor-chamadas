@@ -25,26 +25,40 @@ chrome.storage.sync.get(CONFIG_PADRAO).then((config) => {
   }
 })
 
-// ---------- o Transcritor do PC (a ponte) ----------
+// ---------- copiloto (opções, em storage.local: a chave não vai para a conta do Google) ----------
 
-const selo = document.getElementById('ponte')
-let ponteLigada = null
+const COPILOTO_PADRAO = { chaveOpenrouter: '', copilotoAutomatico: true }
+chrome.storage.local.get([...Object.keys(COPILOTO_PADRAO), 'roteiroImportado']).then(async (salvo) => {
+  const config = { ...COPILOTO_PADRAO, ...salvo }
+  const chave = document.getElementById('chaveOpenrouter')
+  const auto = document.getElementById('copilotoAutomatico')
+  chave.value = config.chaveOpenrouter
+  auto.checked = config.copilotoAutomatico
+  chave.addEventListener('change', () => chrome.storage.local.set({ chaveOpenrouter: chave.value.trim() }))
+  auto.addEventListener('change', () => chrome.storage.local.set({ copilotoAutomatico: auto.checked }))
+  let roteiro = salvo.roteiroImportado
+  if (!roteiro) roteiro = await fetch(chrome.runtime.getURL('copiloto/roteiro.json')).then((r) => r.json()).catch(() => null)
+  document.getElementById('roteiro-nome').textContent = roteiro ? roteiro.nome : 'nenhum (importe um .json)'
+})
 
-function pedirAoPc(dados) {
-  return chrome.runtime.sendMessage({ tipo: 'ponte-pedir', dados }).catch(() => ({ erro: 'sem resposta' }))
+document.getElementById('roteiro-arquivo').addEventListener('change', async (e) => {
+  const arquivo = e.target.files[0]
+  if (!arquivo) return
+  try {
+    const roteiro = JSON.parse(await arquivo.text())
+    if (!Array.isArray(roteiro.etapas) || !Array.isArray(roteiro.objecoes) || !Array.isArray(roteiro.alertas)) throw new Error('faltam etapas, objeções ou alertas')
+    await chrome.storage.local.set({ roteiroImportado: roteiro })
+    document.getElementById('roteiro-nome').textContent = roteiro.nome || arquivo.name
+  } catch (erro) {
+    document.getElementById('roteiro-nome').textContent = 'arquivo inválido: ' + erro.message
+  }
+})
+
+function abrirAgenda(id) {
+  chrome.tabs.create({ url: chrome.runtime.getURL('agenda/agenda.html') + (id ? '#reuniao=' + encodeURIComponent(id) : '') })
+  window.close()
 }
-
-async function olharPonte() {
-  const r = await pedirAoPc({ tipo: 'ponte-ola', versao: chrome.runtime.getManifest().version })
-  ponteLigada = Boolean(r && r.tipo === 'ponte-ok')
-  selo.hidden = false
-  selo.classList.toggle('ligada', ponteLigada)
-  selo.textContent = ponteLigada ? 'PC conectado' : 'PC fechado'
-  selo.title = ponteLigada
-    ? `Conectado ao Transcritor do PC${r.versao ? ' ' + r.versao : ''}: as chamadas do Meet vão para ele, com o copiloto.`
-    : 'O Transcritor do PC não está aberto: a extensão transcreve sozinha e baixa o .md no fim.'
-  return ponteLigada
-}
+document.getElementById('abrir-agenda').addEventListener('click', () => abrirAgenda())
 
 // ---------- lista ----------
 
@@ -76,7 +90,7 @@ async function desenhar() {
   for (const r of reunioes) {
     const no = modelo.content.firstElementChild.cloneNode(true)
     no.querySelector('.titulo').textContent = r.titulo
-    no.querySelector('.titulo').title = r.titulo
+    no.querySelector('.titulo').addEventListener('click', () => abrirAgenda(r.id))
     const estado = no.querySelector('.estado')
     estado.textContent = r.fim ? Formato.duracao(r) : '● ao vivo'
     estado.classList.toggle('ao-vivo', !r.fim)
@@ -116,10 +130,10 @@ const avisoAba = document.getElementById('aba-aviso')
 const botaoComecar = document.getElementById('aba-comecar')
 const pareado = document.getElementById('pareado')
 const chaveCopiloto = document.getElementById('copiloto')
-const botaoAbrirPc = document.getElementById('abrir-pc')
+const botaoAbrirCopiloto = document.getElementById('abrir-copiloto')
 const botaoDiagnostico = document.getElementById('diagnostico')
-let sessaoNoPc = null
-let meetAtivo = false // chamada do Meet sendo transcrita pelas legendas: o áudio da aba sobra
+let reuniaoDaAba = null
+let copilotoPronto = false // com chave e roteiro
 
 async function olharAba() {
   const [aba] = await chrome.tabs.query({ active: true, currentWindow: true })
@@ -133,16 +147,32 @@ async function olharAba() {
   if (!resposta || !resposta.ok) estadoAba.textContent = 'não está sendo transcrita'
   else if (resposta.encerrada) estadoAba.textContent = 'encerrada e salva'
   else if (!resposta.naChamada) estadoAba.textContent = 'esperando você entrar'
-  else estadoAba.textContent = `● ${resposta.falas} ${resposta.falas === 1 ? 'fala' : 'falas'}${resposta.noPc ? ' · no PC' : ''}`
+  else estadoAba.textContent = `● ${resposta.falas} ${resposta.falas === 1 ? 'fala' : 'falas'}`
   avisoAba.hidden = !(resposta && resposta.avisoIdioma)
   if (resposta && resposta.avisoIdioma) avisoAba.textContent = resposta.avisoIdioma
-  meetAtivo = Boolean(resposta && resposta.naChamada && !resposta.encerrada)
-  sessaoNoPc = resposta && !resposta.encerrada ? resposta.noPc : null
-  pareado.hidden = !sessaoNoPc
-  if (sessaoNoPc) olharSessaoNoPc()
+  reuniaoDaAba = resposta && resposta.reuniao
+  const { disponivel } = (await chrome.runtime.sendMessage({ tipo: 'copiloto-disponivel' }).catch(() => null)) || {}
+  copilotoPronto = Boolean(disponivel)
+  pareado.hidden = !reuniaoDaAba
+  document.getElementById('copiloto-falta').hidden = copilotoPronto
+  document.getElementById('interruptor-copiloto').hidden = !copilotoPronto
+  botaoAbrirCopiloto.textContent = resposta && resposta.encerrada ? 'Ver o resumo' : 'Abrir o copiloto'
+  if (copilotoPronto && reuniaoDaAba) {
+    const { ['copiloto:' + reuniaoDaAba]: salvo } = await chrome.storage.local.get('copiloto:' + reuniaoDaAba)
+    const { copilotoAutomatico } = await chrome.storage.local.get({ copilotoAutomatico: true })
+    chaveCopiloto.checked = salvo ? Boolean(salvo.guardado.ativo) : copilotoAutomatico
+    chaveCopiloto.disabled = Boolean(resposta && resposta.encerrada)
+  }
+  botaoAbrirCopiloto.onclick = async () => {
+    await chrome.sidePanel.open({ tabId: aba.id }).catch(() => {})
+    window.close()
+  }
   botaoDiagnostico.onclick = async () => {
     const r = await chrome.tabs.sendMessage(aba.id, { tipo: 'diagnostico' }).catch(() => null)
-    avisar(botaoDiagnostico, r && r.ok ? 'Mandado ao PC' : 'Sem chamada')
+    if (!r || !r.ok) return avisar(botaoDiagnostico, 'Sem chamada')
+    // Vai para a área de transferência, para mandar a quem cuida da extensão.
+    await navigator.clipboard.writeText(JSON.stringify(r.dados, null, 1))
+    avisar(botaoDiagnostico, 'Copiado: mande ao suporte')
   }
 
   botaoComecar.onclick = async () => {
@@ -155,99 +185,16 @@ async function olharAba() {
   }
 }
 
-async function olharSessaoNoPc() {
-  const r = await pedirAoPc({ tipo: 'ponte-sessao', sessao: sessaoNoPc })
-  if (!r || !r.existe) return
-  chaveCopiloto.checked = r.copiloto
-  if (r.idioma_errado && avisoAba.hidden) {
-    avisoAba.hidden = false
-    avisoAba.textContent = 'O programa do PC acha que as legendas estão em outro idioma: no Meet, ⋮ › Configurações › Legendas.'
-  }
-}
-
 chaveCopiloto.addEventListener('change', async () => {
   chaveCopiloto.disabled = true
-  const r = await pedirAoPc({ tipo: 'ponte-copiloto', sessao: sessaoNoPc, ativo: chaveCopiloto.checked })
+  await chrome.runtime.sendMessage({ tipo: 'copiloto-ligar', reuniao: reuniaoDaAba, ativo: chaveCopiloto.checked })
   chaveCopiloto.disabled = false
-  if (r && r.existe) chaveCopiloto.checked = r.copiloto
-})
-
-botaoAbrirPc.addEventListener('click', async () => {
-  const r = await pedirAoPc({ tipo: 'ponte-abrir', sessao: sessaoNoPc })
-  if (r && r.erro) avisar(botaoAbrirPc, 'PC fechado')
-  else window.close()
-})
-
-// ---------- áudio desta aba (pelo Transcritor do PC) ----------
-
-const secaoAudio = document.getElementById('audio-aba')
-const estadoAudio = document.getElementById('audio-estado')
-const audioParado = document.getElementById('audio-parado')
-const audioGravando = document.getElementById('audio-gravando')
-const audioLinhas = document.getElementById('audio-linhas')
-const audioUltima = document.getElementById('audio-ultima')
-const botaoAudio = document.getElementById('audio-comecar')
-let abaAtual = null
-
-// A captura de áudio da aba depende de um programa local, que transcreve com
-// Whisper (não vem com a extensão). Sem ele respondendo, a seção nem aparece.
-async function olharAudio() {
-  if (!abaAtual) {
-    ;[abaAtual] = await chrome.tabs.query({ active: true, currentWindow: true })
-    if (!abaAtual || !/^https?:/.test(abaAtual.url || '')) return
-  }
-  const chave = 'captura:' + abaAtual.id
-  const { [chave]: captura, ultimaCaptura } = await chrome.storage.session.get([chave, 'ultimaCaptura'])
-  if (!captura) {
-    if (meetAtivo) return
-    if (ponteLigada === null) await olharPonte()
-    if (!ponteLigada) return
-  }
-  secaoAudio.hidden = false
-  audioParado.hidden = Boolean(captura)
-  audioGravando.hidden = !captura
-  if (captura) {
-    const min = Math.floor((Date.now() - captura.desde) / 60000)
-    estadoAudio.textContent = `● gravando · ${min} min`
-    audioLinhas.textContent = captura.linhas.join('\n') || 'Esperando alguém falar…'
-  } else if (!estadoAudio.dataset.erro) {
-    estadoAudio.textContent = ''
-  }
-  audioUltima.hidden = !ultimaCaptura || Boolean(captura)
-  if (ultimaCaptura) audioUltima.textContent = `Salvo: ${ultimaCaptura.arquivo || ultimaCaptura.titulo}`
-}
-
-botaoAudio.addEventListener('click', async () => {
-  botaoAudio.disabled = true
-  estadoAudio.dataset.erro = ''
-  estadoAudio.textContent = 'Conectando ao programa do PC…'
-  const r = await chrome.runtime.sendMessage({
-    tipo: 'aba-transcrever',
-    aba: abaAtual.id,
-    titulo: abaAtual.title || abaAtual.url,
-    url: abaAtual.url,
-    microfone: document.getElementById('audio-microfone').checked
-  })
-  botaoAudio.disabled = false
-  if (r && r.erro) {
-    estadoAudio.dataset.erro = '1'
-    estadoAudio.textContent = r.erro
-  }
-  olharAudio()
-})
-
-document.getElementById('audio-parar').addEventListener('click', async () => {
-  estadoAudio.textContent = 'Salvando…'
-  await chrome.runtime.sendMessage({ tipo: 'aba-parar', aba: abaAtual.id })
 })
 
 chrome.storage.onChanged.addListener((_, area) => {
-  if (area === 'session') olharAudio()
   if (area !== 'local') return
   desenhar()
   olharAba()
 })
 desenhar()
-olharPonte()
-  .then(olharAba)
-  .then(olharAudio)
+olharAba()

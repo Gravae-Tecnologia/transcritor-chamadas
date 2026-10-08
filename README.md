@@ -51,28 +51,37 @@ O idioma da transcrição é o das legendas do Meet (**⋮ › Configurações �
 
 **Avise quem está na chamada** que ela está sendo transcrita.
 
-## Com o Transcritor do PC (opcional)
+## Copiloto de vendas
 
-A extensão conversa com o **Transcritor de Chamadas do PC**, um programa à parte
-(não incluso neste repositório) que transcreve qualquer programa com o Whisper
-local e tem um copiloto de vendas. Com ele aberto:
+Durante a chamada, um painel ao lado do Meet (o **painel lateral** do Chrome,
+que o cliente não vê nem quando você compartilha a tela) acompanha a conversa
+contra um roteiro de vendas:
 
-- a chamada do Meet vai para o programa pelas legendas, com o nome de cada pessoa,
-  e o arquivo, o histórico e o copiloto ficam com ele (o `.md` da extensão não é
-  baixado, mas continua no popup);
-- o popup mostra **PC conectado**, o interruptor do copiloto, **Abrir no
-  Transcritor** e **Diagnóstico**;
-- dá para transcrever o áudio de qualquer aba (**Áudio desta aba**).
+- **Diga agora:** a próxima frase sugerida, uma por vez, com o porquê;
+- **Objeção:** quando o cliente resiste (preço, sócio, concorrente…), a resposta
+  que o roteiro manda dar e o que evitar;
+- **Alertas** (sinal de compra, promessa arriscada…) e as **etapas do roteiro**,
+  que vão ficando verdes conforme a conversa cobre cada uma;
+- no fim da call, um **resumo**: dados do cliente, dor, objeções, promessas
+  arriscadas, próximos passos e conselhos para a próxima.
 
-Sem o programa, nada disso aparece além do selo **PC fechado**, e a extensão
-funciona sozinha.
+Para abrir: popup › **Abrir o copiloto**. Para configurar: popup › ⚙ ›
+**Copiloto de vendas**, com a chave da [OpenRouter](https://openrouter.ai) (fica
+só no navegador) e o roteiro, um `.json` com etapas, objeções e alertas
+(`extensao/copiloto/roteiro.json` ou importado ali). O roteiro da Gravaê não
+está neste repositório.
 
-A conversa é por um WebSocket local (`ws://127.0.0.1:8766`), descrito no começo
-de `extensao/background.js` (cliente) e no programa do PC (servidor):
-`ponte-ola`, `ponte-ping`, `meet-inicio`, `meet-fala` (a mesma `i` de novo é
-correção), `meet-fim`, `meet-diagnostico`, `ponte-sessao`, `ponte-copiloto` e
-`ponte-abrir`. Se a conexão cai, ao voltar a extensão manda todas as falas de
-novo e o programa ignora as que já tinha.
+Por baixo: o **Jev** (`typesafe/jev-1.13`) lê a conversa a cada poucas falas e
+marca etapas, objeção e alertas; o Claude Haiku escreve a sugestão e o Claude
+Sonnet, o resumo. Custa uns US$ 0,03 por call.
+
+## Agenda de calls
+
+O ícone de calendário no popup abre a agenda: as chamadas numa semana como a do
+Google Agenda, cada uma do tamanho que durou, com a call em andamento marcada ao
+vivo. Clicando numa call, aparecem o resumo do copiloto e a transcrição inteira,
+com a cor de cada pessoa e busca. Dá para buscar em todas as transcrições,
+baixar, copiar, apagar e gerar o resumo de uma call que acabou sem ele.
 
 ## Estrutura
 
@@ -80,17 +89,22 @@ novo e o programa ignora as que já tinha.
 extensao/
   manifest.json
   background.js        selo REC, download ao sair ou ao fechar a aba, entrada nas abas já abertas,
-                       ponte com o Transcritor do PC
+                       o copiloto de cada chamada
   lib/falas.js         blocos de legenda → falas (sem DOM, testado no Node)
   lib/formato.js       Markdown, texto e nome do arquivo
   meet/seletores.js    tudo que depende do HTML do Meet
-  meet/meet.js         content script: legendas, envio ao PC, diagnóstico, aviso de idioma
-  popup/               lista, opções e controles do Transcritor do PC
-  aba/                 áudio de uma aba para o Transcritor do PC
+  meet/meet.js         content script: legendas, falas para o copiloto, diagnóstico, aviso de idioma
+  popup/               lista, opções e controles do copiloto
+  lib/copiloto.js      o copiloto de vendas (Jev + LLM pela OpenRouter, sem DOM, testado no Node)
+  lib/markdown.js      o resumo do copiloto em HTML
+  copiloto/            o painel lateral do copiloto (e o roteiro.json, fora do git)
+  agenda/              a agenda de calls
+  estilo/gravae.css    o tema, comum ao painel e à agenda
   fontes/              Space Grotesk e Open Sans (SIL OFL, licenças junto)
   icones/              o G. da Gravaê
 testes/
-  falas.test.js        node --test testes/falas.test.js
+  falas.test.js        node --test testes/falas.test.js testes/copiloto.test.js
+  copiloto.test.js     o copiloto com uma OpenRouter de mentira
   meet-falso.html      página que imita o Meet para testar sem chamada
 ```
 
@@ -98,15 +112,17 @@ testes/
 
 O Meet muda o HTML de vez em quando, e o ajuste é em `extensao/meet/seletores.js`.
 A extensão se apoia no texto dos ícones (`call_end`, `closed_caption_off`) e na
-região `div[role="region"][tabindex="0"]`, onde cada bloco tem o nome e, logo
-depois, o texto. O [TranscripTonic](https://github.com/vivek-nexus/transcriptonic)
+área `div[role="region"]` com nome de legendas (`aria-label` "Legendas",
+"Captions", "Subtítulos"…), onde cada bloco tem a foto e o nome e, depois, o
+texto. O [TranscripTonic](https://github.com/vivek-nexus/transcriptonic)
 acompanha essas mudanças e é uma boa referência.
 
-Com o Transcritor do PC aberto, o botão **Diagnóstico** do popup (e um envio
-automático 20 s depois da primeira legenda) manda ao programa a estrutura da área
-das legendas, para ver o que o Google mudou. Nada sai do computador.
+Se a transcrição falhar com alguém, peça para abrir o popup durante a chamada e
+clicar em **Diagnóstico**: ele copia a estrutura da área das legendas (com o
+texto cortado em 40 caracteres) para colar numa mensagem. É o que mostra o que o
+Google mudou.
 
 Para testar sem uma chamada: sirva a pasta do projeto
 (`python -m http.server 8765`), abra `http://127.0.0.1:8765/testes/meet-falso.html`
-e rode `simular()` no console. O resultado fica em `guardado.local`, e o que iria
-para o Transcritor do PC, em `mensagens`.
+e rode `simular()` no console. O resultado fica em `guardado.local`, e o que vai
+para o copiloto (no service worker), em `mensagens`.

@@ -5,10 +5,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 AQUI = os.path.dirname(os.path.abspath(__file__))
 pedidos = []
 
+emails = []
+
 class Falsa(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def do_POST(self):
         corpo = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        if self.path == '/sendgrid':
+            emails.append(corpo)
+            self.send_response(202); self.send_header('Content-Length', '0'); self.end_headers(); return
         pedidos.append((self.path, corpo, self.headers.get('Authorization')))
         r = json.dumps({'usage': {'cost': 1.2}, 'choices': [{'message': {'content': 'oi'}}], 'answers': {}}).encode()
         self.send_response(200); self.send_header('Content-Length', str(len(r))); self.end_headers(); self.wfile.write(r)
@@ -20,7 +25,8 @@ json.dump({'nome': 'Roteiro de teste', 'etapas': []}, open(os.path.join(pasta, '
 env = dict(os.environ, PORTA='18890', OPENROUTER_API_KEY='chave-de-mentira', OPENROUTER_URL='http://127.0.0.1:18891/api/v1',
            GOOGLE_CLIENT_ID='cliente.apps.googleusercontent.com', GOOGLE_CLIENT_SECRET='x', SEGREDO='segredo-de-teste',
            EXTENSOES='abcdefghijklmnopabcdefghijklmnop', LIMITE_DIA_USD='2', ROTEIRO=os.path.join(pasta, 'roteiro.json'),
-           ARQUIVO_USO=os.path.join(pasta, 'uso.json'), BASE_URL='https://intake.gravae.io/copiloto')
+           ARQUIVO_USO=os.path.join(pasta, 'uso.json'), BASE_URL='https://intake.gravae.io/copiloto',
+           SENDGRID_API_KEY='sg-de-mentira', SENDGRID_URL='http://127.0.0.1:18891/sendgrid')
 srv = subprocess.Popen([sys.executable, os.path.join(AQUI, 'servico.py')], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 time.sleep(1.2)
 token = subprocess.check_output([sys.executable, os.path.join(AQUI, 'servico.py'), 'token', 'Vendedor@gravae.io'], env=env, text=True).strip()
@@ -68,6 +74,22 @@ try:
         abrir.open(B + '/entrar?volta=' + urllib.parse.quote('https://zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz.chromiumapp.org/x', safe=''))
     except urllib.error.HTTPError as e:
         ok(e.code == 400, 'outra extensão: recusada')
+    # Login por código no e-mail
+    ok(pedir('/codigo', {'email': 'alguem@gmail.com'}, tok=None)[0] == 400, 'código para e-mail de fora: recusado')
+    s, c = pedir('/codigo', {'email': ' Vendedor@Gravae.io '}, tok=None)
+    ok(s == 200 and len(emails) == 1 and emails[0]['personalizations'][0]['to'][0]['email'] == 'vendedor@gravae.io', 'código mandado ao e-mail certo')
+    import re as _re
+    codigo = _re.search(r'(\d{6})', emails[0]['subject']).group(1)
+    ok(pedir('/verificar', {'email': 'vendedor@gravae.io', 'codigo': '000000' if codigo != '000000' else '111111'}, tok=None)[0] == 400, 'código errado: recusado')
+    s, c = pedir('/verificar', {'email': 'vendedor@gravae.io', 'codigo': codigo}, tok=None)
+    sessao = json.loads(c).get('token') if s == 200 else None
+    ok(bool(sessao) and pedir('/v1/eu', tok=sessao)[0] == 200, 'código certo: sessão que funciona')
+    ok(pedir('/verificar', {'email': 'vendedor@gravae.io', 'codigo': codigo}, tok=None)[0] == 400, 'o mesmo código não serve duas vezes')
+    pedir('/codigo', {'email': 'outro@gravae.io'}, tok=None); pedir('/codigo', {'email': 'outro@gravae.io'}, tok=None); pedir('/codigo', {'email': 'outro@gravae.io'}, tok=None)
+    ok(pedir('/codigo', {'email': 'outro@gravae.io'}, tok=None)[0] == 429, 'quarto código em 10 min: espera')
+    for _ in range(5): pedir('/verificar', {'email': 'outro@gravae.io', 'codigo': '123'}, tok=None)
+    ultimo = _re.search(r'(\d{6})', emails[-1]['subject']).group(1)
+    ok(pedir('/verificar', {'email': 'outro@gravae.io', 'codigo': ultimo}, tok=None)[0] == 400, 'depois de 5 erros, nem o certo vale')
 finally:
     srv.terminate()
 print(f'{len(falhas)} falha(s)')

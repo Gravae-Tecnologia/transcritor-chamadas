@@ -2,10 +2,12 @@
 
 Por que existe: a chave da OpenRouter não pode ir dentro da extensão (o código
 de uma extensão é público). Aqui ela fica guardada no servidor, e quem usa o
-copiloto entra com a conta Google da Gravaê.
+copiloto entra com o e-mail da Gravaê.
 
-- GET  /entrar?volta=<https://<id>.chromiumapp.org/...>  começa o login Google
-- GET  /callback                                         volta do Google; devolve a sessão à extensão
+- POST /codigo     {email}                               manda um código de 6 dígitos ao e-mail @gravae.io
+- POST /verificar  {email, codigo}                       confere e devolve a sessão (30 dias)
+- GET  /entrar e /callback                               login Google (só funciona com o endereço
+                                                         BASE_URL/callback cadastrado no cliente OAuth)
 - POST /v1/jev   (Bearer <sessão>)                       o Jev (marca etapas, objeção, alertas)
 - POST /v1/chat  (Bearer <sessão>)                       a sugestão e o resumo (só os modelos do copiloto)
 - GET  /v1/roteiro (Bearer <sessão>)                     o roteiro de vendas da Gravaê
@@ -47,6 +49,9 @@ CFG = {
     'limite_dia': float(os.environ.get('LIMITE_DIA_USD', '3')),
     'sessao_dias': int(os.environ.get('SESSAO_DIAS', '30')),
     'roteiro': os.environ.get('ROTEIRO', '/opt/gravae-copiloto/roteiro.json'),
+    'sendgrid': os.environ.get('SENDGRID_API_KEY', ''),
+    'sendgrid_url': os.environ.get('SENDGRID_URL', 'https://api.sendgrid.com/v3/mail/send'),
+    'remetente': os.environ.get('EMAIL_FROM', 'noreply@gravae.io'),
     'uso': os.environ.get('ARQUIVO_USO', '/var/lib/gravae-copiloto/uso.json'),
 }
 VOLTA_VALIDA = re.compile(r'^https://([a-p]{32})\.chromiumapp\.org/')
@@ -81,6 +86,68 @@ def conferir(token):
 
 def nova_sessao(email):
     return assinar({'email': email, 'exp': int(time.time()) + CFG['sessao_dias'] * 86400, 'tipo': 'sessao'})
+
+
+# ---------- código por e-mail ----------
+
+CODIGO_MIN = 10
+_codigos = {}  # email -> {hash, exp, tentativas}
+_envios = {}  # email -> [instantes dos últimos envios]
+_trava_codigos = threading.Lock()
+
+
+def _hash_codigo(email, codigo):
+    return hmac.new(CFG['segredo'], f'{email}:{codigo}'.encode(), hashlib.sha256).hexdigest()
+
+
+def email_valido(email):
+    return bool(re.fullmatch(r'[a-z0-9._%+-]+@' + re.escape(CFG['dominio']), email))
+
+
+def mandar_email(email, codigo):
+    corpo = {
+        'personalizations': [{'to': [{'email': email}]}],
+        'from': {'email': CFG['remetente'], 'name': 'Copiloto Gravaê'},
+        'subject': f'Seu código do Copiloto Gravaê: {codigo}',
+        'content': [
+            {'type': 'text/plain', 'value': f'Seu código para entrar no Copiloto da Gravaê é {codigo}. Ele vale por {CODIGO_MIN} minutos.\n\nSe não foi você que pediu, ignore este e-mail.'},
+            {'type': 'text/html', 'value': (
+                '<div style="font:15px/1.5 Arial,sans-serif;color:#18181b">'
+                '<p>Seu código para entrar no <b>Copiloto da Gravaê</b>:</p>'
+                f'<p style="font:700 30px/1.2 Arial,sans-serif;letter-spacing:6px;color:#d30404">{codigo}</p>'
+                f'<p style="color:#52525b">Vale por {CODIGO_MIN} minutos. Se não foi você que pediu, ignore este e-mail.</p></div>')},
+        ],
+    }
+    pedido = urllib.request.Request(CFG['sendgrid_url'], json.dumps(corpo).encode(),
+                                    {'Authorization': 'Bearer ' + CFG['sendgrid'], 'Content-Type': 'application/json'})
+    with urllib.request.urlopen(pedido, timeout=20) as r:
+        return r.status
+
+
+def pedir_codigo(email):
+    agora = time.time()
+    with _trava_codigos:
+        recentes = [t for t in _envios.get(email, []) if agora - t < CODIGO_MIN * 60]
+        if len(recentes) >= 3:
+            return 'já foram 3 códigos nos últimos 10 minutos; espere um pouco'
+        codigo = f'{secrets.randbelow(1000000):06d}'
+        _codigos[email] = {'hash': _hash_codigo(email, codigo), 'exp': agora + CODIGO_MIN * 60, 'tentativas': 0}
+        _envios[email] = recentes + [agora]
+    mandar_email(email, codigo)
+    return None
+
+
+def conferir_codigo(email, codigo):
+    with _trava_codigos:
+        pendente = _codigos.get(email)
+        if not pendente or pendente['exp'] < time.time() or pendente['tentativas'] >= 5:
+            _codigos.pop(email, None)
+            return 'código vencido: peça outro'
+        if not hmac.compare_digest(pendente['hash'], _hash_codigo(email, codigo)):
+            pendente['tentativas'] += 1
+            return 'código errado'
+        del _codigos[email]
+    return None
 
 
 # ---------- gasto por pessoa, por dia ----------
@@ -253,6 +320,8 @@ class Servico(BaseHTTPRequestHandler):
 
     def do_POST(self):
         caminho = urllib.parse.urlsplit(self.path).path
+        if caminho in ('/codigo', '/verificar'):
+            return self._login_por_codigo(caminho)
         email = self._quem()
         if not email:
             return self._json(401, {'erro': 'entre com a conta da Gravaê'})
@@ -285,11 +354,40 @@ class Servico(BaseHTTPRequestHandler):
         self.wfile.write(texto)
 
 
+def _login_por_codigo(self, caminho):
+    try:
+        corpo = self._corpo()
+    except ValueError as e:
+        return self._json(400, {'erro': str(e)})
+    email = str(corpo.get('email', '')).strip().lower()
+    if not email_valido(email):
+        return self._json(400, {'erro': f'use o seu e-mail @{CFG["dominio"]}'})
+    if caminho == '/codigo':
+        try:
+            erro = pedir_codigo(email)
+        except (urllib.error.URLError, OSError) as e:
+            self.log_message('envio falhou para %s: %s', email, e)
+            return self._json(502, {'erro': 'não deu para mandar o e-mail agora'})
+        if erro:
+            return self._json(429, {'erro': erro})
+        self.log_message('código enviado a %s', email)
+        return self._json(200, {'ok': True, 'minutos': CODIGO_MIN})
+    codigo = re.sub(r'\D', '', str(corpo.get('codigo', '')))
+    erro = conferir_codigo(email, codigo)
+    if erro:
+        return self._json(400, {'erro': erro})
+    self.log_message('login por código %s', email)
+    return self._json(200, {'token': nova_sessao(email), 'email': email})
+
+
+Servico._login_por_codigo = _login_por_codigo
+
+
 def main():
     if len(sys.argv) == 3 and sys.argv[1] == 'token':
         print(nova_sessao(sys.argv[2].lower()))
         return
-    faltando = [k for k in ('chave', 'client_id', 'client_secret', 'segredo') if not CFG[k]]
+    faltando = [k for k in ('chave', 'sendgrid', 'segredo') if not CFG[k]]
     if faltando:
         sys.exit('faltam variáveis: ' + ', '.join(faltando))
     servidor = ThreadingHTTPServer(('127.0.0.1', CFG['porta']), Servico)

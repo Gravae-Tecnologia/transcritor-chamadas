@@ -37,24 +37,62 @@ chrome.storage.local.get([...Object.keys(COPILOTO_PADRAO), 'roteiroImportado', '
   document.getElementById('roteiro-nome').textContent = roteiro ? roteiro.nome : 'vem com o login'
 })
 
-// A conta: entrar abre a janela do Google; o popup pode fechar, o login continua no fundo.
+// A conta: o e-mail da Gravaê recebe um código de 6 dígitos. O popup fecha quando
+// a pessoa vai buscar o código; o e-mail pendente fica em storage.session.
 const textoConta = document.getElementById('conta-texto')
+const linhaEmail = document.getElementById('conta-email-linha')
+const linhaCodigo = document.getElementById('conta-codigo-linha')
+const campoEmail = document.getElementById('conta-email')
+const campoCodigo = document.getElementById('conta-codigo')
+const botaoMandar = document.getElementById('mandar-codigo')
 const botaoEntrar = document.getElementById('entrar')
 const botaoSair = document.getElementById('sair')
-async function olharConta() {
+
+async function olharConta(aviso) {
   const s = (await chrome.runtime.sendMessage({ tipo: 'copiloto-sessao' }).catch(() => null)) || {}
-  botaoEntrar.hidden = Boolean(s.email)
+  const { loginPendente: p } = await chrome.storage.session.get('loginPendente')
+  const pendente = !s.email && p && Date.now() - p.em < 10 * 60000 ? p : null
+  linhaEmail.hidden = Boolean(s.email || pendente)
+  linhaCodigo.hidden = !pendente
   botaoSair.hidden = !s.email
-  textoConta.textContent = s.email ? `Conectado como ${s.email}` : 'Entre com a sua conta da Gravaê para usar o copiloto.'
+  if (pendente) campoEmail.value = pendente.email
+  textoConta.textContent = aviso || (s.email
+    ? `Conectado como ${s.email}`
+    : pendente
+      ? `Mandamos um código para ${pendente.email}. Ele vale por 10 minutos.`
+      : 'Entre com o seu e-mail da Gravaê para usar o copiloto.')
 }
+
+botaoMandar.addEventListener('click', async () => {
+  const email = campoEmail.value.trim().toLowerCase()
+  botaoMandar.disabled = true
+  textoConta.textContent = 'Mandando o código…'
+  const r = await chrome.runtime.sendMessage({ tipo: 'copiloto-codigo', email }).catch((e) => ({ erro: String(e.message || e) }))
+  botaoMandar.disabled = false
+  if (r && r.erro) return olharConta('Não deu: ' + r.erro)
+  await chrome.storage.session.set({ loginPendente: { email, em: Date.now() } })
+  await olharConta()
+  campoCodigo.focus()
+})
+campoEmail.addEventListener('keydown', (e) => e.key === 'Enter' && botaoMandar.click())
+
 botaoEntrar.addEventListener('click', async () => {
+  const { loginPendente: p } = await chrome.storage.session.get('loginPendente')
+  if (!p) return olharConta()
   botaoEntrar.disabled = true
-  textoConta.textContent = 'Abrindo o Google…'
-  const r = await chrome.runtime.sendMessage({ tipo: 'copiloto-entrar' }).catch((e) => ({ erro: String(e.message || e) }))
+  const r = await chrome.runtime.sendMessage({ tipo: 'copiloto-verificar', email: p.email, codigo: campoCodigo.value }).catch((e) => ({ erro: String(e.message || e) }))
   botaoEntrar.disabled = false
-  if (r && r.erro) textoConta.textContent = 'Não entrou: ' + r.erro
-  olharConta()
+  if (r && r.erro) return olharConta('Não entrou: ' + r.erro)
+  await chrome.storage.session.remove('loginPendente')
+  campoCodigo.value = ''
+  await olharConta()
   olharAba()
+})
+campoCodigo.addEventListener('keydown', (e) => e.key === 'Enter' && botaoEntrar.click())
+
+document.getElementById('outro-email').addEventListener('click', async () => {
+  await chrome.storage.session.remove('loginPendente')
+  olharConta()
 })
 botaoSair.addEventListener('click', async () => {
   await chrome.runtime.sendMessage({ tipo: 'copiloto-sair' })

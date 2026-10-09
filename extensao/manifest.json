@@ -1,15 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Transcritor de Chamadas",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Transcreve as chamadas do Google Meet pelas legendas, com o nome de quem falou, e tem um copiloto de vendas e uma agenda das calls.",
   "permissions": [
     "storage",
     "unlimitedStorage",
     "downloads",
     "scripting",
-    "sidePanel",
-    "identity"
+    "sidePanel"
   ],
   "host_permissions": [
     "https://meet.google.com/*",

@@ -433,7 +433,7 @@ function desenharDetalhe() {
         ? 'Esta call não tem fala transcrita.'
         : disponivel
           ? 'Esta call não tem resumo do copiloto. Dá para gerar agora, a partir da transcrição (uns US$ 0,03).'
-          : 'Esta call não tem resumo. Para gerar, entre com a conta da Gravaê no popup (⚙ › Entrar com Google).'
+          : 'Esta call não tem resumo. Para gerar, entre com o seu e-mail da Gravaê no popup (⚙ › Copiloto de vendas).'
   }
 
   const termo = $('d-busca').value.trim()

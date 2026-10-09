@@ -65,8 +65,9 @@ contra um roteiro de vendas:
 - no fim da call, um **resumo**: dados do cliente, dor, objeções, promessas
   arriscadas, próximos passos e conselhos para a próxima.
 
-Para abrir: popup › **Abrir o copiloto**. Para usar, uma vez só: popup › ⚙ ›
-**Copiloto de vendas** › **Entrar com Google**, com a conta `@gravae.io`.
+Para abrir: popup › **Abrir o copiloto**. Para usar, uma vez a cada 30 dias:
+popup › ⚙ › **Copiloto de vendas**, digite o seu e-mail `@gravae.io`, clique em
+**Mandar código** e digite o código de 6 dígitos que chega no e-mail.
 Ninguém precisa de chave: o copiloto passa pelo intermediário da Gravaê
 (`intermediario/`), que guarda a chave da OpenRouter no servidor, só atende
 contas da empresa e entrega o roteiro de vendas (que não está neste
@@ -82,9 +83,11 @@ Sonnet, o resumo. Custa uns US$ 0,03 por call, com teto de gasto por pessoa por 
 Um serviço pequeno, só com a biblioteca padrão do Python, que roda na VM
 `coaching-tools` atrás de `https://intake.gravae.io/copiloto/`:
 
-- `GET /entrar` e `GET /callback`: login Google; aceita só contas do domínio
-  `gravae.io` (claim `hd` do token) e devolve à extensão uma sessão assinada
-  (30 dias);
+- `POST /codigo` e `POST /verificar`: login por código de 6 dígitos mandado ao
+  e-mail `@gravae.io` (SendGrid); vale 10 minutos, no máximo 3 códigos a cada
+  10 minutos e 5 tentativas por código; devolve uma sessão assinada (30 dias);
+- `GET /entrar` e `GET /callback`: login Google, desligado na extensão; passa a
+  servir se `BASE_URL/callback` for cadastrado no cliente OAuth;
 - `POST /v1/jev` e `POST /v1/chat`: repassa à OpenRouter só os modelos do
   copiloto, com teto de tokens e de gasto por pessoa por dia;
 - `GET /v1/roteiro` e `GET /v1/eu`: o roteiro e o gasto do dia.

@@ -68,14 +68,14 @@ chrome.runtime.onInstalled.addListener(garantirEmTodas)
 //
 // Ninguém precisa de chave: o copiloto fala com o intermediário da Gravaê
 // (intermediario/servico.py, na VM coaching-tools), que guarda a chave da
-// OpenRouter e só atende quem entrou com a conta Google @gravae.io. O roteiro de
-// vendas também vem de lá.
+// OpenRouter e só atende quem entrou com um e-mail @gravae.io (código de 6
+// dígitos mandado ao e-mail). O roteiro de vendas também vem de lá.
 const INTERMEDIARIO = 'https://intake.gravae.io/copiloto'
 const COPILOTO_PADRAO = { copilotoAutomatico: true }
 const copilotos = new Map() // reunião -> { cop, falas, titulo, inicio, encerrando }
 let relogio = null
 
-// ---------- o login (conta Google da Gravaê) ----------
+// ---------- o login (código no e-mail da Gravaê) ----------
 
 async function sessaoAtual() {
   const { sessaoCopiloto: s } = await chrome.storage.local.get('sessaoCopiloto')
@@ -91,13 +91,26 @@ function lerSessao(token) {
   }
 }
 
-// Abre a janela do Google; o intermediário confere a conta e devolve a sessão.
-async function entrar() {
-  const volta = chrome.identity.getRedirectURL('copiloto')
-  const fim = await chrome.identity.launchWebAuthFlow({ url: `${INTERMEDIARIO}/entrar?volta=${encodeURIComponent(volta)}`, interactive: true })
-  const dados = new URLSearchParams(new URL(fim).hash.slice(1))
-  const sessao = dados.get('token') && lerSessao(dados.get('token'))
-  if (!sessao) throw new Error('o login não voltou com a sessão')
+async function postarLogin(caminho, corpo) {
+  const r = await fetch(INTERMEDIARIO + caminho, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(corpo)
+  })
+  const dados = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(dados.erro || `HTTP ${r.status}`)
+  return dados
+}
+
+// 1) o intermediário manda o código ao e-mail; 2) a pessoa digita e ganha a sessão (30 dias).
+async function pedirCodigo(email) {
+  return postarLogin('/codigo', { email })
+}
+
+async function verificarCodigo(email, codigo) {
+  const dados = await postarLogin('/verificar', { email, codigo })
+  const sessao = lerSessao(dados.token)
+  if (!sessao) throw new Error('a sessão veio estranha')
   await chrome.storage.local.set({ sessaoCopiloto: sessao })
   await buscarRoteiro().catch(() => {})
   return sessao
@@ -228,7 +241,7 @@ async function encerrarCopiloto(id, reuniao) {
 async function resumirDepois(id) {
   const { ['reuniao:' + id]: reuniao } = await chrome.storage.local.get('reuniao:' + id)
   if (!reuniao) return { erro: 'Chamada não encontrada.' }
-  if (!(await copilotoDisponivel())) return { erro: 'Entre com a conta da Gravaê no popup (⚙ › Copiloto de vendas).' }
+  if (!(await copilotoDisponivel())) return { erro: 'Entre com o seu e-mail da Gravaê no popup (⚙ › Copiloto de vendas).' }
   copilotos.delete(id)
   const item = await copilotoDe(id, { titulo: reuniao.titulo, inicio: reuniao.inicio })
   item.cop.ativo = true
@@ -271,8 +284,15 @@ chrome.runtime.onMessage.addListener((mensagem, remetente, responder) => {
     copilotoDisponivel().then((disponivel) => responder({ disponivel }))
     return true
   }
-  if (mensagem.tipo === 'copiloto-entrar') {
-    entrar().then(
+  if (mensagem.tipo === 'copiloto-codigo') {
+    pedirCodigo(mensagem.email).then(
+      (r) => responder({ ok: true, minutos: r.minutos }),
+      (e) => responder({ erro: String(e.message || e) })
+    )
+    return true
+  }
+  if (mensagem.tipo === 'copiloto-verificar') {
+    verificarCodigo(mensagem.email, mensagem.codigo).then(
       (s) => responder({ ok: true, email: s.email }),
       (e) => responder({ erro: String(e.message || e) })
     )

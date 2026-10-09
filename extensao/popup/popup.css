@@ -87,6 +87,8 @@ input[type="checkbox"] { accent-color: var(--vermelho); }
 .subtitulo { font: 600 13px var(--titulo); }
 #opcoes .campo span { display: block; }
 .conta .acoes { display: flex; gap: 6px; margin-top: 4px; }
+.conta .acoes:empty, .conta .acoes:has(> [hidden]:only-child) { display: none; }
+.conta input { flex: 1; min-width: 0; font: inherit; padding: 5px 8px; color: var(--texto); background: var(--fundo); border: 1px solid var(--contorno); border-radius: 8px; }
 .arquivo { color: var(--vermelho-texto); cursor: pointer; font-size: 12px; font-weight: 600; }
 .arquivo input { display: none; }
 button.icone svg { display: block; }

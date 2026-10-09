@@ -74,7 +74,7 @@ async function desenhar() {
   if (!disponivel && !(c && c.resumo)) {
     mostrar('sem-copiloto', true)
     $('sem-copiloto-texto').textContent =
-      'Para usar o copiloto, entre com a sua conta da Gravaê: abra o popup da extensão (o G. na barra do Chrome), clique em ⚙ e em Entrar com Google.'
+      'Para usar o copiloto, entre com o seu e-mail da Gravaê: abra o popup da extensão (o G. na barra do Chrome), clique em ⚙ e peça o código.'
     return
   }
 
@@ -124,7 +124,7 @@ async function desenhar() {
 
   if (c.erro) {
     mostrar('erro', true)
-    $('erro').textContent = c.erro === 'sem chave' || c.erro === 'sem login' ? 'Sem login: entre com a conta da Gravaê no popup (⚙).' : 'Erro do copiloto: ' + c.erro
+    $('erro').textContent = c.erro === 'sem chave' || c.erro === 'sem login' ? 'Sem login: entre com o seu e-mail da Gravaê no popup (⚙).' : 'Erro do copiloto: ' + c.erro
   }
 
   if (c.resumo) {

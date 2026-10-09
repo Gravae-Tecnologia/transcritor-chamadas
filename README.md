@@ -25,8 +25,16 @@ Já está numa chamada? Não precisa recarregar: ao ser instalada ou atualizada,
 extensão entra sozinha nas abas do Meet que já estavam abertas. Se o aviso
 "Transcrevendo" não aparecer, abra o popup e clique em **Transcrever esta chamada**.
 
-Para atualizar: baixe de novo, troque a pasta e clique em ↻ na extensão, em
-`chrome://extensions`.
+Para atualizar, **na mesma pasta** e sem remover a extensão:
+
+- quem baixou com git: `git pull` na pasta do repositório;
+- quem baixou o ZIP: descompacte e copie o conteúdo da pasta `extensao` nova por
+  cima da antiga, no mesmo lugar;
+
+e clique em ↻ na extensão, em `chrome://extensions`. Assim o login do copiloto e
+o histórico das calls continuam. **Remover** a extensão ou carregar de outra pasta
+apaga os dois (o Chrome trata como outra extensão). O login também não vence para
+quem usa: ele se renova sozinho antes dos 30 dias.
 
 ## Como funciona
 
@@ -90,6 +98,8 @@ Um serviço pequeno, só com a biblioteca padrão do Python, que roda na VM
   servir se `BASE_URL/callback` for cadastrado no cliente OAuth;
 - `POST /v1/jev` e `POST /v1/chat`: repassa à OpenRouter só os modelos do
   copiloto, com teto de tokens e de gasto por pessoa por dia;
+- `POST /v1/renovar`: troca a sessão por uma nova (a extensão renova sozinha
+  quando faltam menos de 10 dias);
 - `GET /v1/roteiro` e `GET /v1/eu`: o roteiro e o gasto do dia.
 
 Configuração em `/etc/gravae-copiloto.env` (modelo em

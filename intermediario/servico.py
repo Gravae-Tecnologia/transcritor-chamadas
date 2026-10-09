@@ -6,6 +6,7 @@ copiloto entra com o e-mail da Gravaê.
 
 - POST /codigo     {email}                               manda um código de 6 dígitos ao e-mail @gravae.io
 - POST /verificar  {email, codigo}                       confere e devolve a sessão (30 dias)
+- POST /v1/renovar (Bearer <sessão>)                     troca a sessão por uma nova (mais 30 dias)
 - GET  /entrar e /callback                               login Google (só funciona com o endereço
                                                          BASE_URL/callback cadastrado no cliente OAuth)
 - POST /v1/jev   (Bearer <sessão>)                       o Jev (marca etapas, objeção, alertas)
@@ -325,6 +326,9 @@ class Servico(BaseHTTPRequestHandler):
         email = self._quem()
         if not email:
             return self._json(401, {'erro': 'entre com a conta da Gravaê'})
+        if caminho == '/v1/renovar':
+            # Quem usa não precisa entrar de novo: a extensão renova antes de vencer.
+            return self._json(200, {'token': nova_sessao(email), 'email': email})
         try:
             corpo = self._corpo()
         except ValueError as e:

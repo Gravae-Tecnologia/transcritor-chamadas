@@ -74,6 +74,12 @@ try:
         abrir.open(B + '/entrar?volta=' + urllib.parse.quote('https://zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz.chromiumapp.org/x', safe=''))
     except urllib.error.HTTPError as e:
         ok(e.code == 400, 'outra extensão: recusada')
+    s, c = pedir('/v1/renovar', {})
+    renovada = json.loads(c).get('token') if s == 200 else None
+    import base64 as _b64
+    validade = lambda t: json.loads(_b64.urlsafe_b64decode(t.split('.')[0] + '=' * (-len(t.split('.')[0]) % 4)))['exp']
+    ok(bool(renovada) and validade(renovada) >= validade(token) and pedir('/v1/eu', tok=renovada)[0] == 200, 'renovar devolve uma sessão que funciona, valendo pelo menos até a antiga')
+    ok(pedir('/v1/renovar', {}, tok=None)[0] == 401, 'renovar sem sessão: 401')
     # Login por código no e-mail
     ok(pedir('/codigo', {'email': 'alguem@gmail.com'}, tok=None)[0] == 400, 'código para e-mail de fora: recusado')
     s, c = pedir('/codigo', {'email': ' Vendedor@Gravae.io '}, tok=None)

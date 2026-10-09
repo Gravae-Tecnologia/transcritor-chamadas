@@ -77,9 +77,27 @@ let relogio = null
 
 // ---------- o login (código no e-mail da Gravaê) ----------
 
+// O login fica no storage.local da extensão, que atualizar (git pull ou trocar os
+// arquivos da pasta e clicar em ↻) não apaga: só remover a extensão apaga. E quem
+// usa nunca precisa entrar de novo: faltando menos de 10 dias para vencer, a
+// sessão é trocada por uma nova (mais 30 dias), sem a pessoa ver.
+const RENOVAR_ANTES_MS = 10 * 86400000
+let renovando = null
+
 async function sessaoAtual() {
   const { sessaoCopiloto: s } = await chrome.storage.local.get('sessaoCopiloto')
-  return s && s.token && s.exp * 1000 > Date.now() ? s : null
+  if (!(s && s.token && s.exp * 1000 > Date.now())) return null
+  if (s.exp * 1000 - Date.now() < RENOVAR_ANTES_MS && !renovando) renovando = renovar(s).finally(() => (renovando = null))
+  return s
+}
+
+async function renovar(s) {
+  try {
+    const r = await fetch(INTERMEDIARIO + '/v1/renovar', { method: 'POST', headers: { Authorization: 'Bearer ' + s.token } })
+    if (!r.ok) return
+    const nova = lerSessao((await r.json()).token)
+    if (nova) await chrome.storage.local.set({ sessaoCopiloto: nova })
+  } catch {}
 }
 
 function lerSessao(token) {

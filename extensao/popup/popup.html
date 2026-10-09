@@ -28,14 +28,15 @@
     <div class="separador"></div>
     <strong class="subtitulo">Copiloto de vendas</strong>
     <label><input type="checkbox" id="copilotoAutomatico"> Ligar o copiloto sozinho em toda call</label>
-    <label class="campo">Chave da OpenRouter
-      <input type="password" id="chaveOpenrouter" placeholder="sk-or-v1-…" autocomplete="off" spellcheck="false">
-    </label>
+    <div class="campo conta">
+      <span id="conta-texto">Entre com a sua conta da Gravaê para usar o copiloto.</span>
+      <span class="acoes"><button id="entrar" class="principal" type="button">Entrar com Google</button><button id="sair" type="button" hidden>Sair</button></span>
+    </div>
     <div class="campo">
       <span>Roteiro: <b id="roteiro-nome">—</b></span>
       <label class="arquivo">Importar outro roteiro (.json) <input type="file" id="roteiro-arquivo" accept=".json,application/json"></label>
     </div>
-    <p class="dica">A chave fica só neste navegador. O copiloto custa uns US$ 0,03 por call (leituras do Jev, sugestões e o resumo).</p>
+    <p class="dica">Ninguém precisa de chave: o copiloto passa pelo servidor da Gravaê, que só atende contas @gravae.io. Custa uns US$ 0,03 por call, pagos pela empresa.</p>
   </section>
 
   <section id="aba-atual" class="cartao" hidden>
@@ -50,7 +51,7 @@
         <input type="checkbox" id="copiloto">
         <span>Copiloto de vendas</span>
       </label>
-      <p id="copiloto-falta" class="dica" hidden>Para usar o copiloto, preencha a chave da OpenRouter em ⚙.</p>
+      <p id="copiloto-falta" class="dica" hidden>Para usar o copiloto, entre com a conta da Gravaê em ⚙.</p>
       <div class="acoes">
         <button id="abrir-copiloto" class="principal">Abrir o copiloto</button>
         <button id="diagnostico" title="Copia a estrutura das legendas desta chamada, para mandar a quem cuida da extensão quando a transcrição falhar">Diagnóstico</button>

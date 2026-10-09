@@ -65,15 +65,33 @@ contra um roteiro de vendas:
 - no fim da call, um **resumo**: dados do cliente, dor, objeções, promessas
   arriscadas, próximos passos e conselhos para a próxima.
 
-Para abrir: popup › **Abrir o copiloto**. Para configurar: popup › ⚙ ›
-**Copiloto de vendas**, com a chave da [OpenRouter](https://openrouter.ai) (fica
-só no navegador) e o roteiro, um `.json` com etapas, objeções e alertas
-(`extensao/copiloto/roteiro.json` ou importado ali). O roteiro da Gravaê não
-está neste repositório.
+Para abrir: popup › **Abrir o copiloto**. Para usar, uma vez só: popup › ⚙ ›
+**Copiloto de vendas** › **Entrar com Google**, com a conta `@gravae.io`.
+Ninguém precisa de chave: o copiloto passa pelo intermediário da Gravaê
+(`intermediario/`), que guarda a chave da OpenRouter no servidor, só atende
+contas da empresa e entrega o roteiro de vendas (que não está neste
+repositório). Dá para importar outro roteiro (`.json` com etapas, objeções e
+alertas) nas opções.
 
 Por baixo: o **Jev** (`typesafe/jev-1.13`) lê a conversa a cada poucas falas e
 marca etapas, objeção e alertas; o Claude Haiku escreve a sugestão e o Claude
-Sonnet, o resumo. Custa uns US$ 0,03 por call.
+Sonnet, o resumo. Custa uns US$ 0,03 por call, com teto de gasto por pessoa por dia.
+
+## O intermediário (`intermediario/`)
+
+Um serviço pequeno, só com a biblioteca padrão do Python, que roda na VM
+`coaching-tools` atrás de `https://intake.gravae.io/copiloto/`:
+
+- `GET /entrar` e `GET /callback`: login Google; aceita só contas do domínio
+  `gravae.io` (claim `hd` do token) e devolve à extensão uma sessão assinada
+  (30 dias);
+- `POST /v1/jev` e `POST /v1/chat`: repassa à OpenRouter só os modelos do
+  copiloto, com teto de tokens e de gasto por pessoa por dia;
+- `GET /v1/roteiro` e `GET /v1/eu`: o roteiro e o gasto do dia.
+
+Configuração em `/etc/gravae-copiloto.env` (modelo em
+`gravae-copiloto.env.exemplo`), serviço em `gravae-copiloto.service`. Teste sem
+rede: `python intermediario/teste_local.py`.
 
 ## Agenda de calls
 
@@ -95,13 +113,14 @@ extensao/
   meet/seletores.js    tudo que depende do HTML do Meet
   meet/meet.js         content script: legendas, falas para o copiloto, diagnóstico, aviso de idioma
   popup/               lista, opções e controles do copiloto
-  lib/copiloto.js      o copiloto de vendas (Jev + LLM pela OpenRouter, sem DOM, testado no Node)
+  lib/copiloto.js      o copiloto de vendas (Jev + LLM, sem DOM, testado no Node)
   lib/markdown.js      o resumo do copiloto em HTML
-  copiloto/            o painel lateral do copiloto (e o roteiro.json, fora do git)
+  copiloto/            o painel lateral do copiloto
   agenda/              a agenda de calls
   estilo/gravae.css    o tema, comum ao painel e à agenda
   fontes/              Space Grotesk e Open Sans (SIL OFL, licenças junto)
   icones/              o G. da Gravaê
+intermediario/         o serviço que guarda a chave e faz o login (ver acima)
 testes/
   falas.test.js        node --test testes/falas.test.js testes/copiloto.test.js
   copiloto.test.js     o copiloto com uma OpenRouter de mentira

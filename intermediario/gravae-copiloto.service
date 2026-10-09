@@ -1,0 +1,15 @@
+[Unit]
+Description=Gravae copiloto: intermediario da extensao (login Google, chave da OpenRouter guardada aqui)
+After=network-online.target
+
+[Service]
+DynamicUser=yes
+StateDirectory=gravae-copiloto
+EnvironmentFile=/etc/gravae-copiloto.env
+Environment=ARQUIVO_USO=/var/lib/gravae-copiloto/uso.json
+ExecStart=/usr/bin/python3 /opt/gravae-copiloto/servico.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

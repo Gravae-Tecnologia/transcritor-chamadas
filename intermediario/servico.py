@@ -1,0 +1,301 @@
+"""Intermediário do copiloto: a extensão fala com ele, e só ele fala com a OpenRouter.
+
+Por que existe: a chave da OpenRouter não pode ir dentro da extensão (o código
+de uma extensão é público). Aqui ela fica guardada no servidor, e quem usa o
+copiloto entra com a conta Google da Gravaê.
+
+- GET  /entrar?volta=<https://<id>.chromiumapp.org/...>  começa o login Google
+- GET  /callback                                         volta do Google; devolve a sessão à extensão
+- POST /v1/jev   (Bearer <sessão>)                       o Jev (marca etapas, objeção, alertas)
+- POST /v1/chat  (Bearer <sessão>)                       a sugestão e o resumo (só os modelos do copiloto)
+- GET  /v1/roteiro (Bearer <sessão>)                     o roteiro de vendas da Gravaê
+- GET  /v1/eu    (Bearer <sessão>)                       quem é e quanto gastou hoje
+- GET  /saude
+
+Só a biblioteca padrão do Python. Configuração por variáveis de ambiente (ver
+gravae-copiloto.env.exemplo). Para criar uma sessão na mão (teste, suporte):
+    python3 servico.py token alguem@gravae.io
+"""
+import base64
+import hashlib
+import hmac
+import json
+import os
+import re
+import secrets
+import sys
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+CFG = {
+    'porta': int(os.environ.get('PORTA', '8006')),
+    'base': os.environ.get('BASE_URL', 'https://intake.gravae.io/copiloto').rstrip('/'),
+    'chave': os.environ.get('OPENROUTER_API_KEY', ''),
+    'openrouter': os.environ.get('OPENROUTER_URL', 'https://openrouter.ai/api/v1').rstrip('/'),
+    'client_id': os.environ.get('GOOGLE_CLIENT_ID', ''),
+    'client_secret': os.environ.get('GOOGLE_CLIENT_SECRET', ''),
+    'dominio': os.environ.get('DOMINIO', 'gravae.io'),
+    'segredo': os.environ.get('SEGREDO', '').encode(),
+    'extensoes': [x for x in os.environ.get('EXTENSOES', '').split(',') if x],
+    'modelos_chat': [x for x in os.environ.get('MODELOS_CHAT', 'anthropic/claude-haiku-4.5,anthropic/claude-sonnet-5.5').split(',') if x],
+    'modelo_jev': os.environ.get('MODELO_JEV', 'typesafe/jev-1.13'),
+    'max_tokens': int(os.environ.get('MAX_TOKENS', '4000')),
+    'limite_dia': float(os.environ.get('LIMITE_DIA_USD', '3')),
+    'sessao_dias': int(os.environ.get('SESSAO_DIAS', '30')),
+    'roteiro': os.environ.get('ROTEIRO', '/opt/gravae-copiloto/roteiro.json'),
+    'uso': os.environ.get('ARQUIVO_USO', '/var/lib/gravae-copiloto/uso.json'),
+}
+VOLTA_VALIDA = re.compile(r'^https://([a-p]{32})\.chromiumapp\.org/')
+
+# ---------- sessões assinadas (HMAC), sem banco ----------
+
+
+def _b64(dados):
+    return base64.urlsafe_b64encode(dados).rstrip(b'=').decode()
+
+
+def _de_b64(texto):
+    return base64.urlsafe_b64decode(texto + '=' * (-len(texto) % 4))
+
+
+def assinar(dados):
+    corpo = _b64(json.dumps(dados, separators=(',', ':')).encode())
+    return corpo + '.' + _b64(hmac.new(CFG['segredo'], corpo.encode(), hashlib.sha256).digest())
+
+
+def conferir(token):
+    try:
+        corpo, assinatura = token.split('.')
+        certa = _b64(hmac.new(CFG['segredo'], corpo.encode(), hashlib.sha256).digest())
+        if not hmac.compare_digest(assinatura, certa):
+            return None
+        dados = json.loads(_de_b64(corpo))
+        return dados if dados.get('exp', 0) > time.time() else None
+    except (ValueError, json.JSONDecodeError):
+        return None
+
+
+def nova_sessao(email):
+    return assinar({'email': email, 'exp': int(time.time()) + CFG['sessao_dias'] * 86400, 'tipo': 'sessao'})
+
+
+# ---------- gasto por pessoa, por dia ----------
+
+_trava_uso = threading.Lock()
+
+
+def _ler_uso():
+    try:
+        with open(CFG['uso'], encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def gasto_hoje(email):
+    with _trava_uso:
+        return _ler_uso().get(time.strftime('%Y-%m-%d'), {}).get(email, 0.0)
+
+
+def somar_gasto(email, custo):
+    if not custo:
+        return
+    with _trava_uso:
+        uso = _ler_uso()
+        dia = time.strftime('%Y-%m-%d')
+        # Guarda só os últimos 60 dias.
+        for velho in sorted(uso)[:-60]:
+            del uso[velho]
+        uso.setdefault(dia, {})
+        uso[dia][email] = round(uso[dia].get(email, 0.0) + float(custo), 6)
+        os.makedirs(os.path.dirname(CFG['uso']), exist_ok=True)
+        temporario = CFG['uso'] + '.tmp'
+        with open(temporario, 'w', encoding='utf-8') as f:
+            json.dump(uso, f)
+        os.replace(temporario, CFG['uso'])
+
+
+# ---------- OpenRouter ----------
+
+
+def openrouter(caminho, corpo, email):
+    pedido = urllib.request.Request(
+        CFG['openrouter'] + caminho, json.dumps(corpo).encode(),
+        {'Authorization': 'Bearer ' + CFG['chave'], 'Content-Type': 'application/json',
+         'X-Title': 'Copiloto Gravae (extensao)'},
+    )
+    try:
+        with urllib.request.urlopen(pedido, timeout=125) as r:
+            status, texto = r.status, r.read()
+    except urllib.error.HTTPError as e:
+        status, texto = e.code, e.read()
+    try:
+        somar_gasto(email, (json.loads(texto).get('usage') or {}).get('cost'))
+    except (ValueError, AttributeError):
+        pass
+    return status, texto
+
+
+# ---------- HTTP ----------
+
+PAGINA = '''<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Copiloto · Gravaê</title><body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#09090b;color:#f2f2fa;font:15px/1.5 system-ui,sans-serif">
+<div style="max-width:420px;padding:24px;background:#18181b;border:1px solid #ffffff14;border-radius:12px"><h1 style="font-size:18px;margin:0 0 8px">{titulo}</h1><p style="margin:0;color:#a8a8b3">{texto}</p></div></body></html>'''
+
+
+class Servico(BaseHTTPRequestHandler):
+    server_version = 'gravae-copiloto'
+
+    def log_message(self, formato, *args):
+        sys.stderr.write('%s %s\n' % (self.address_string(), formato % args))
+
+    def _json(self, status, dados):
+        corpo = json.dumps(dados, ensure_ascii=False).encode()
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Length', str(len(corpo)))
+        self.end_headers()
+        self.wfile.write(corpo)
+
+    def _pagina(self, status, titulo, texto):
+        corpo = PAGINA.format(titulo=titulo, texto=texto).encode()
+        self.send_response(status)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Content-Length', str(len(corpo)))
+        self.end_headers()
+        self.wfile.write(corpo)
+
+    def _ir(self, url):
+        self.send_response(302)
+        self.send_header('Location', url)
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
+    def _quem(self):
+        cabecalho = self.headers.get('Authorization', '')
+        dados = conferir(cabecalho[7:]) if cabecalho.startswith('Bearer ') else None
+        return dados['email'] if dados and dados.get('tipo') == 'sessao' else None
+
+    def _corpo(self):
+        tamanho = int(self.headers.get('Content-Length') or 0)
+        if tamanho > 4 * 1024 * 1024:
+            raise ValueError('pedido grande demais')
+        return json.loads(self.rfile.read(tamanho) or b'{}')
+
+    # ----- GET -----
+
+    def do_GET(self):
+        url = urllib.parse.urlsplit(self.path)
+        consulta = dict(urllib.parse.parse_qsl(url.query))
+        if url.path == '/saude':
+            return self._json(200, {'ok': True})
+        if url.path == '/entrar':
+            return self._entrar(consulta.get('volta', ''))
+        if url.path == '/callback':
+            return self._callback(consulta)
+        email = self._quem()
+        if not email:
+            return self._json(401, {'erro': 'entre com a conta da Gravaê'})
+        if url.path == '/v1/eu':
+            return self._json(200, {'email': email, 'gasto_hoje': gasto_hoje(email), 'limite_dia': CFG['limite_dia']})
+        if url.path == '/v1/roteiro':
+            try:
+                with open(CFG['roteiro'], encoding='utf-8') as f:
+                    return self._json(200, json.load(f))
+            except OSError:
+                return self._json(404, {'erro': 'sem roteiro no servidor'})
+        return self._json(404, {'erro': 'não existe'})
+
+    def _entrar(self, volta):
+        m = VOLTA_VALIDA.match(volta)
+        if not m or (CFG['extensoes'] and m.group(1) not in CFG['extensoes']):
+            return self._pagina(400, 'Endereço de volta inválido', 'Abra o login pela extensão do Transcritor.')
+        estado = assinar({'volta': volta, 'exp': int(time.time()) + 600, 'n': secrets.token_hex(8), 'tipo': 'estado'})
+        q = urllib.parse.urlencode({
+            'client_id': CFG['client_id'], 'redirect_uri': CFG['base'] + '/callback', 'response_type': 'code',
+            'scope': 'openid email profile', 'hd': CFG['dominio'], 'prompt': 'select_account', 'state': estado,
+        })
+        self._ir('https://accounts.google.com/o/oauth2/v2/auth?' + q)
+
+    def _callback(self, consulta):
+        estado = conferir(consulta.get('state', ''))
+        if not estado or estado.get('tipo') != 'estado':
+            return self._pagina(400, 'Login expirou', 'Volte à extensão e clique em Entrar com Google de novo.')
+        if 'code' not in consulta:
+            return self._pagina(400, 'Login cancelado', 'Volte à extensão e tente de novo.')
+        corpo = urllib.parse.urlencode({
+            'code': consulta['code'], 'client_id': CFG['client_id'], 'client_secret': CFG['client_secret'],
+            'redirect_uri': CFG['base'] + '/callback', 'grant_type': 'authorization_code',
+        }).encode()
+        try:
+            with urllib.request.urlopen('https://oauth2.googleapis.com/token', corpo, timeout=20) as r:
+                resposta = json.load(r)
+            # O id_token veio direto do Google por HTTPS: não precisa conferir a assinatura.
+            dados = json.loads(_de_b64(resposta['id_token'].split('.')[1]))
+        except (urllib.error.URLError, KeyError, ValueError) as e:
+            return self._pagina(502, 'Não deu para falar com o Google', str(e)[:200])
+        ok = (dados.get('iss') in ('accounts.google.com', 'https://accounts.google.com')
+              and dados.get('aud') == CFG['client_id'] and dados.get('exp', 0) > time.time()
+              and dados.get('email_verified') and dados.get('hd') == CFG['dominio']
+              and str(dados.get('email', '')).lower().endswith('@' + CFG['dominio']))
+        if not ok:
+            return self._pagina(403, 'Só contas da Gravaê', f'Entre com o seu e-mail @{CFG["dominio"]}.')
+        email = dados['email'].lower()
+        self.log_message('login %s', email)
+        fragmento = urllib.parse.urlencode({'token': nova_sessao(email), 'email': email})
+        self._ir(estado['volta'] + '#' + fragmento)
+
+    # ----- POST -----
+
+    def do_POST(self):
+        caminho = urllib.parse.urlsplit(self.path).path
+        email = self._quem()
+        if not email:
+            return self._json(401, {'erro': 'entre com a conta da Gravaê'})
+        try:
+            corpo = self._corpo()
+        except ValueError as e:
+            return self._json(400, {'erro': str(e)})
+        if gasto_hoje(email) >= CFG['limite_dia']:
+            return self._json(429, {'erro': f'limite de US$ {CFG["limite_dia"]:.2f} por dia atingido'})
+        if caminho == '/v1/jev':
+            if corpo.get('model') != CFG['modelo_jev']:
+                return self._json(400, {'erro': 'modelo não permitido'})
+            limpo = {'model': corpo['model'], 'state': corpo.get('state'), 'questions': corpo.get('questions')}
+            status, texto = openrouter('/systemone', limpo, email)
+        elif caminho == '/v1/chat':
+            if corpo.get('model') not in CFG['modelos_chat']:
+                return self._json(400, {'erro': 'modelo não permitido'})
+            limpo = {'model': corpo['model'], 'messages': corpo.get('messages', []), 'user': email,
+                     'max_tokens': min(int(corpo.get('max_tokens') or 1000), CFG['max_tokens'])}
+            if 'temperature' in corpo:
+                limpo['temperature'] = corpo['temperature']
+            status, texto = openrouter('/chat/completions', limpo, email)
+        else:
+            return self._json(404, {'erro': 'não existe'})
+        self.log_message('%s %s %s', email, caminho, status)
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Length', str(len(texto)))
+        self.end_headers()
+        self.wfile.write(texto)
+
+
+def main():
+    if len(sys.argv) == 3 and sys.argv[1] == 'token':
+        print(nova_sessao(sys.argv[2].lower()))
+        return
+    faltando = [k for k in ('chave', 'client_id', 'client_secret', 'segredo') if not CFG[k]]
+    if faltando:
+        sys.exit('faltam variáveis: ' + ', '.join(faltando))
+    servidor = ThreadingHTTPServer(('127.0.0.1', CFG['porta']), Servico)
+    print(f'gravae-copiloto em 127.0.0.1:{CFG["porta"]} ({CFG["base"]})', flush=True)
+    servidor.serve_forever()
+
+
+if __name__ == '__main__':
+    main()

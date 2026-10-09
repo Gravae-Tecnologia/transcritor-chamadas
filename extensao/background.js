@@ -64,33 +64,88 @@ chrome.runtime.onInstalled.addListener(garantirEmTodas)
 // chamada, que lê com o Jev e sugere a próxima frase. O estado vai para
 // storage.local "copiloto:<reunião>", que o painel lateral (copiloto/painel.html)
 // e a agenda (agenda/agenda.html) desenham. Se o service worker dormir, volta
-// de lá. Precisa da chave da OpenRouter (opções do popup) e do roteiro
-// (copiloto/roteiro.json, ou um importado nas opções).
-const COPILOTO_PADRAO = { chaveOpenrouter: '', copilotoAutomatico: true }
+// de lá.
+//
+// Ninguém precisa de chave: o copiloto fala com o intermediário da Gravaê
+// (intermediario/servico.py, na VM coaching-tools), que guarda a chave da
+// OpenRouter e só atende quem entrou com a conta Google @gravae.io. O roteiro de
+// vendas também vem de lá.
+const INTERMEDIARIO = 'https://intake.gravae.io/copiloto'
+const COPILOTO_PADRAO = { copilotoAutomatico: true }
 const copilotos = new Map() // reunião -> { cop, falas, titulo, inicio, encerrando }
-let roteiroEmCache = null
 let relogio = null
 
-async function roteiroAtual() {
-  const { roteiroImportado } = await chrome.storage.local.get('roteiroImportado')
-  if (roteiroImportado) return roteiroImportado
-  if (roteiroEmCache === null) {
-    try {
-      roteiroEmCache = await (await fetch(chrome.runtime.getURL('copiloto/roteiro.json'))).json()
-    } catch {
-      roteiroEmCache = false
-    }
+// ---------- o login (conta Google da Gravaê) ----------
+
+async function sessaoAtual() {
+  const { sessaoCopiloto: s } = await chrome.storage.local.get('sessaoCopiloto')
+  return s && s.token && s.exp * 1000 > Date.now() ? s : null
+}
+
+function lerSessao(token) {
+  try {
+    const dados = JSON.parse(atob(token.split('.')[0].replace(/-/g, '+').replace(/_/g, '/')))
+    return { token, email: dados.email, exp: dados.exp }
+  } catch {
+    return null
   }
-  return roteiroEmCache || null
+}
+
+// Abre a janela do Google; o intermediário confere a conta e devolve a sessão.
+async function entrar() {
+  const volta = chrome.identity.getRedirectURL('copiloto')
+  const fim = await chrome.identity.launchWebAuthFlow({ url: `${INTERMEDIARIO}/entrar?volta=${encodeURIComponent(volta)}`, interactive: true })
+  const dados = new URLSearchParams(new URL(fim).hash.slice(1))
+  const sessao = dados.get('token') && lerSessao(dados.get('token'))
+  if (!sessao) throw new Error('o login não voltou com a sessão')
+  await chrome.storage.local.set({ sessaoCopiloto: sessao })
+  await buscarRoteiro().catch(() => {})
+  return sessao
+}
+
+// O copiloto chama o intermediário, não a OpenRouter: a resposta vem igual.
+async function chamarIntermediario(url, corpo, timeout) {
+  const sessao = await sessaoAtual()
+  if (!sessao) throw new Error('sem login')
+  const caminho = url.endsWith('/systemone') ? '/v1/jev' : '/v1/chat'
+  try {
+    return await Copilotagem.postar(INTERMEDIARIO + caminho, corpo, sessao.token, timeout)
+  } catch (e) {
+    if (/HTTP 401/.test(e.message)) await chrome.storage.local.remove('sessaoCopiloto')
+    if (/HTTP 429/.test(e.message)) throw new Error('limite de gasto do dia atingido')
+    throw e
+  }
+}
+
+// ---------- o roteiro ----------
+
+async function buscarRoteiro() {
+  const sessao = await sessaoAtual()
+  if (!sessao) return null
+  const r = await fetch(INTERMEDIARIO + '/v1/roteiro', { headers: { Authorization: 'Bearer ' + sessao.token } })
+  if (!r.ok) return null
+  const roteiro = await r.json()
+  await chrome.storage.local.set({ roteiroGravae: { roteiro, em: Date.now() } })
+  return roteiro
+}
+
+// Um importado nas opções vale primeiro; depois o da Gravaê (atualizado uma vez por dia).
+async function roteiroAtual() {
+  const { roteiroImportado, roteiroGravae } = await chrome.storage.local.get(['roteiroImportado', 'roteiroGravae'])
+  if (roteiroImportado) return roteiroImportado
+  if (roteiroGravae && Date.now() - roteiroGravae.em < 86400000) return roteiroGravae.roteiro
+  return (await buscarRoteiro().catch(() => null)) || (roteiroGravae && roteiroGravae.roteiro) || null
 }
 
 async function configCopiloto() {
-  return chrome.storage.local.get(COPILOTO_PADRAO)
+  const [config, sessao] = await Promise.all([chrome.storage.local.get(COPILOTO_PADRAO), sessaoAtual()])
+  // "chave" para o Copiloto é só o sinal de que há login; quem guarda a chave de verdade é o intermediário.
+  return { ...config, sessao, chave: sessao ? 'intermediario' : '' }
 }
 
 async function copilotoDisponivel() {
   const [roteiro, config] = await Promise.all([roteiroAtual(), configCopiloto()])
-  return Boolean(roteiro && config.chaveOpenrouter)
+  return Boolean(roteiro && config.sessao)
 }
 
 async function copilotoDe(id, info = {}) {
@@ -100,8 +155,8 @@ async function copilotoDe(id, info = {}) {
   const config = await configCopiloto()
   const { ['copiloto:' + id]: salvo, ['reuniao:' + id]: reuniao } = await chrome.storage.local.get(['copiloto:' + id, 'reuniao:' + id])
   if (copilotos.has(id)) return copilotos.get(id) // outra mensagem chegou enquanto lia o storage
-  const guardado = salvo ? salvo.guardado : { ativo: config.copilotoAutomatico && Boolean(config.chaveOpenrouter) }
-  const cop = new Copilotagem.Copiloto(roteiro, { chave: config.chaveOpenrouter }, guardado)
+  const guardado = salvo ? salvo.guardado : { ativo: config.copilotoAutomatico && Boolean(config.sessao) }
+  const cop = new Copilotagem.Copiloto(roteiro, { chave: config.chave, post: chamarIntermediario }, guardado)
   const item = {
     cop,
     falas: reuniao ? reuniao.falas.map((f) => ({ ...f })) : [],
@@ -173,7 +228,7 @@ async function encerrarCopiloto(id, reuniao) {
 async function resumirDepois(id) {
   const { ['reuniao:' + id]: reuniao } = await chrome.storage.local.get('reuniao:' + id)
   if (!reuniao) return { erro: 'Chamada não encontrada.' }
-  if (!(await copilotoDisponivel())) return { erro: 'O copiloto precisa da chave da OpenRouter e do roteiro (opções do popup).' }
+  if (!(await copilotoDisponivel())) return { erro: 'Entre com a conta da Gravaê no popup (⚙ › Copiloto de vendas).' }
   copilotos.delete(id)
   const item = await copilotoDe(id, { titulo: reuniao.titulo, inicio: reuniao.inicio })
   item.cop.ativo = true
@@ -193,8 +248,8 @@ chrome.runtime.onMessage.addListener((mensagem, remetente, responder) => {
   if (mensagem.tipo === 'copiloto-ligar') {
     copilotoDe(mensagem.reuniao).then(async (item) => {
       if (!item) return responder({ erro: 'Sem roteiro do copiloto.' })
-      const { chaveOpenrouter } = await configCopiloto()
-      item.cop.chave = chaveOpenrouter
+      const { chave } = await configCopiloto()
+      item.cop.chave = chave
       item.cop.ligar(Boolean(mensagem.ativo))
       await salvarCopiloto(mensagem.reuniao)
       responder({ ok: true })
@@ -214,6 +269,21 @@ chrome.runtime.onMessage.addListener((mensagem, remetente, responder) => {
   }
   if (mensagem.tipo === 'copiloto-disponivel') {
     copilotoDisponivel().then((disponivel) => responder({ disponivel }))
+    return true
+  }
+  if (mensagem.tipo === 'copiloto-entrar') {
+    entrar().then(
+      (s) => responder({ ok: true, email: s.email }),
+      (e) => responder({ erro: String(e.message || e) })
+    )
+    return true
+  }
+  if (mensagem.tipo === 'copiloto-sair') {
+    chrome.storage.local.remove(['sessaoCopiloto', 'roteiroGravae']).then(() => responder({ ok: true }))
+    return true
+  }
+  if (mensagem.tipo === 'copiloto-sessao') {
+    sessaoAtual().then((s) => responder(s ? { email: s.email, exp: s.exp } : {}))
     return true
   }
   if (mensagem.tipo === 'garantir') {
@@ -241,8 +311,10 @@ chrome.runtime.onMessage.addListener((mensagem, remetente, responder) => {
 
 chrome.storage.onChanged.addListener((mudancas, area) => {
   if (area !== 'local') return
-  if (mudancas.chaveOpenrouter) for (const item of copilotos.values()) item.cop.chave = mudancas.chaveOpenrouter.newValue || ''
-  if (mudancas.roteiroImportado) roteiroEmCache = null
+  if (mudancas.sessaoCopiloto) {
+    const chave = mudancas.sessaoCopiloto.newValue ? 'intermediario' : ''
+    for (const item of copilotos.values()) item.cop.chave = chave
+  }
 })
 
 // Fechou a aba no meio da chamada: o content script não tem tempo de avisar,

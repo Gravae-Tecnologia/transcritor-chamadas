@@ -27,19 +27,41 @@ chrome.storage.sync.get(CONFIG_PADRAO).then((config) => {
 
 // ---------- copiloto (opções, em storage.local: a chave não vai para a conta do Google) ----------
 
-const COPILOTO_PADRAO = { chaveOpenrouter: '', copilotoAutomatico: true }
-chrome.storage.local.get([...Object.keys(COPILOTO_PADRAO), 'roteiroImportado']).then(async (salvo) => {
+const COPILOTO_PADRAO = { copilotoAutomatico: true }
+chrome.storage.local.get([...Object.keys(COPILOTO_PADRAO), 'roteiroImportado', 'roteiroGravae']).then((salvo) => {
   const config = { ...COPILOTO_PADRAO, ...salvo }
-  const chave = document.getElementById('chaveOpenrouter')
   const auto = document.getElementById('copilotoAutomatico')
-  chave.value = config.chaveOpenrouter
   auto.checked = config.copilotoAutomatico
-  chave.addEventListener('change', () => chrome.storage.local.set({ chaveOpenrouter: chave.value.trim() }))
   auto.addEventListener('change', () => chrome.storage.local.set({ copilotoAutomatico: auto.checked }))
-  let roteiro = salvo.roteiroImportado
-  if (!roteiro) roteiro = await fetch(chrome.runtime.getURL('copiloto/roteiro.json')).then((r) => r.json()).catch(() => null)
-  document.getElementById('roteiro-nome').textContent = roteiro ? roteiro.nome : 'nenhum (importe um .json)'
+  const roteiro = salvo.roteiroImportado || (salvo.roteiroGravae && salvo.roteiroGravae.roteiro)
+  document.getElementById('roteiro-nome').textContent = roteiro ? roteiro.nome : 'vem com o login'
 })
+
+// A conta: entrar abre a janela do Google; o popup pode fechar, o login continua no fundo.
+const textoConta = document.getElementById('conta-texto')
+const botaoEntrar = document.getElementById('entrar')
+const botaoSair = document.getElementById('sair')
+async function olharConta() {
+  const s = (await chrome.runtime.sendMessage({ tipo: 'copiloto-sessao' }).catch(() => null)) || {}
+  botaoEntrar.hidden = Boolean(s.email)
+  botaoSair.hidden = !s.email
+  textoConta.textContent = s.email ? `Conectado como ${s.email}` : 'Entre com a sua conta da Gravaê para usar o copiloto.'
+}
+botaoEntrar.addEventListener('click', async () => {
+  botaoEntrar.disabled = true
+  textoConta.textContent = 'Abrindo o Google…'
+  const r = await chrome.runtime.sendMessage({ tipo: 'copiloto-entrar' }).catch((e) => ({ erro: String(e.message || e) }))
+  botaoEntrar.disabled = false
+  if (r && r.erro) textoConta.textContent = 'Não entrou: ' + r.erro
+  olharConta()
+  olharAba()
+})
+botaoSair.addEventListener('click', async () => {
+  await chrome.runtime.sendMessage({ tipo: 'copiloto-sair' })
+  olharConta()
+  olharAba()
+})
+olharConta()
 
 document.getElementById('roteiro-arquivo').addEventListener('change', async (e) => {
   const arquivo = e.target.files[0]

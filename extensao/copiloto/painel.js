@@ -36,7 +36,7 @@ chrome.tabs.onUpdated.addListener((id, mudou) => id === abaId && mudou.status ==
 chrome.storage.onChanged.addListener((mudancas, area) => {
   if (area === 'session' && Object.keys(mudancas).some((k) => k.startsWith('copiloto-aba:'))) return acharReuniao()
   if (area === 'local' && reuniaoId && (mudancas['copiloto:' + reuniaoId] || mudancas['reuniao:' + reuniaoId])) agendar()
-  if (area === 'local' && (mudancas.chaveOpenrouter || mudancas.roteiroImportado)) agendar()
+  if (area === 'local' && (mudancas.sessaoCopiloto || mudancas.roteiroImportado || mudancas.roteiroGravae)) agendar()
 })
 
 let pendente = false
@@ -74,7 +74,7 @@ async function desenhar() {
   if (!disponivel && !(c && c.resumo)) {
     mostrar('sem-copiloto', true)
     $('sem-copiloto-texto').textContent =
-      'O copiloto precisa da chave da OpenRouter e do roteiro de vendas. Abra o popup da extensão (o G. na barra do Chrome), clique em ⚙ e preencha a seção Copiloto.'
+      'Para usar o copiloto, entre com a sua conta da Gravaê: abra o popup da extensão (o G. na barra do Chrome), clique em ⚙ e em Entrar com Google.'
     return
   }
 
@@ -124,7 +124,7 @@ async function desenhar() {
 
   if (c.erro) {
     mostrar('erro', true)
-    $('erro').textContent = c.erro === 'sem chave' ? 'Sem a chave da OpenRouter: preencha nas opções do popup (⚙).' : 'Erro do copiloto: ' + c.erro
+    $('erro').textContent = c.erro === 'sem chave' || c.erro === 'sem login' ? 'Sem login: entre com a conta da Gravaê no popup (⚙).' : 'Erro do copiloto: ' + c.erro
   }
 
   if (c.resumo) {

@@ -86,6 +86,7 @@ input[type="checkbox"] { accent-color: var(--vermelho); }
 .separador { height: 1px; background: var(--borda); margin: 4px 0; }
 .subtitulo { font: 600 13px var(--titulo); }
 #opcoes .campo span { display: block; }
+.conta .acoes { display: flex; gap: 6px; margin-top: 4px; }
 .arquivo { color: var(--vermelho-texto); cursor: pointer; font-size: 12px; font-weight: 600; }
 .arquivo input { display: none; }
 button.icone svg { display: block; }

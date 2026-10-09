@@ -89,7 +89,7 @@ async function carregar() {
 let recarga = null
 chrome.storage.onChanged.addListener((mudancas, area) => {
   if (area !== 'local') return
-  if (!Object.keys(mudancas).some((k) => k.startsWith('reuniao:') || k.startsWith('copiloto:') || k === 'chaveOpenrouter')) return
+  if (!Object.keys(mudancas).some((k) => k.startsWith('reuniao:') || k.startsWith('copiloto:') || k === 'sessaoCopiloto')) return
   clearTimeout(recarga)
   recarga = setTimeout(async () => {
     disponivel = await copilotoDisponivel()
@@ -433,7 +433,7 @@ function desenharDetalhe() {
         ? 'Esta call não tem fala transcrita.'
         : disponivel
           ? 'Esta call não tem resumo do copiloto. Dá para gerar agora, a partir da transcrição (uns US$ 0,03).'
-          : 'Esta call não tem resumo. Para gerar, o copiloto precisa da chave da OpenRouter e do roteiro (opções do popup, ⚙).'
+          : 'Esta call não tem resumo. Para gerar, entre com a conta da Gravaê no popup (⚙ › Entrar com Google).'
   }
 
   const termo = $('d-busca').value.trim()

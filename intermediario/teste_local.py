@@ -26,7 +26,13 @@ env = dict(os.environ, PORTA='18890', OPENROUTER_API_KEY='chave-de-mentira', OPE
            GOOGLE_CLIENT_ID='cliente.apps.googleusercontent.com', GOOGLE_CLIENT_SECRET='x', SEGREDO='segredo-de-teste',
            EXTENSOES='abcdefghijklmnopabcdefghijklmnop', LIMITE_DIA_USD='2', ROTEIRO=os.path.join(pasta, 'roteiro.json'),
            ARQUIVO_USO=os.path.join(pasta, 'uso.json'), BASE_URL='https://intake.gravae.io/copiloto',
-           SENDGRID_API_KEY='sg-de-mentira', SENDGRID_URL='http://127.0.0.1:18891/sendgrid')
+           SENDGRID_API_KEY='sg-de-mentira', SENDGRID_URL='http://127.0.0.1:18891/sendgrid',
+           PAGINA=os.path.join(pasta, 'pagina'), BAIXAR=os.path.join(pasta, 'baixar'))
+os.makedirs(os.path.join(pasta, 'pagina'))
+os.makedirs(os.path.join(pasta, 'baixar'))
+open(os.path.join(pasta, 'pagina', 'index.html'), 'w', encoding='utf-8').write('<h1>Instalar</h1>')
+open(os.path.join(pasta, 'baixar', 'transcritor-gravae.zip'), 'wb').write(b'PK zip de mentira')
+json.dump({'versao': '0.7.3', 'commit': 'abc1234'}, open(os.path.join(pasta, 'baixar', 'versao.json'), 'w'))
 srv = subprocess.Popen([sys.executable, os.path.join(AQUI, 'servico.py')], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 time.sleep(1.2)
 token = subprocess.check_output([sys.executable, os.path.join(AQUI, 'servico.py'), 'token', 'Vendedor@gravae.io'], env=env, text=True).strip()
@@ -80,6 +86,11 @@ try:
     validade = lambda t: json.loads(_b64.urlsafe_b64decode(t.split('.')[0] + '=' * (-len(t.split('.')[0]) % 4)))['exp']
     ok(bool(renovada) and validade(renovada) >= validade(token) and pedir('/v1/eu', tok=renovada)[0] == 200, 'renovar devolve uma sessão que funciona, valendo pelo menos até a antiga')
     ok(pedir('/v1/renovar', {}, tok=None)[0] == 401, 'renovar sem sessão: 401')
+    # Página, download e versão: públicos, sem login
+    s, c = pedir('/instalar/', tok=None); ok(s == 200 and b'Instalar' in c, 'página de instalação sem login')
+    s, c = pedir('/baixar/transcritor-gravae.zip', tok=None); ok(s == 200 and c.startswith(b'PK'), 'download sem login')
+    s, c = pedir('/versao', tok=None); ok(s == 200 and json.loads(c)['versao'] == '0.7.3', 'versão publicada')
+    ok(pedir('/instalar/../servico.py', tok=None)[0] == 404 and pedir('/baixar/..%2Fpagina%2Findex.html', tok=None)[0] == 404, 'não sai da pasta')
     # Login por código no e-mail
     ok(pedir('/codigo', {'email': 'alguem@gmail.com'}, tok=None)[0] == 400, 'código para e-mail de fora: recusado')
     s, c = pedir('/codigo', {'email': ' Vendedor@Gravae.io '}, tok=None)

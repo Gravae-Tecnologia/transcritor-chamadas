@@ -1,0 +1,7 @@
+[Unit]
+Description=Gravae copiloto: deixa a VM igual a main do GitHub (servidor, pagina e .zip da extensao)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/gravae-copiloto/sincronizar.sh

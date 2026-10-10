@@ -13,6 +13,9 @@ copiloto entra com o e-mail da Gravaê.
 - POST /v1/chat  (Bearer <sessão>)                       a sugestão e o resumo (só os modelos do copiloto)
 - GET  /v1/roteiro (Bearer <sessão>)                     o roteiro de vendas da Gravaê
 - GET  /v1/eu    (Bearer <sessão>)                       quem é e quanto gastou hoje
+- GET  /instalar                                         a página de instalação (intermediario/pagina/)
+- GET  /baixar/transcritor-gravae.zip                    a extensão, montada da main pelo sincronizar.sh
+- GET  /versao                                           a versão publicada ({versao, commit, data})
 - GET  /saude
 
 Só a biblioteca padrão do Python. Configuração por variáveis de ambiente (ver
@@ -50,6 +53,8 @@ CFG = {
     'limite_dia': float(os.environ.get('LIMITE_DIA_USD', '3')),
     'sessao_dias': int(os.environ.get('SESSAO_DIAS', '30')),
     'roteiro': os.environ.get('ROTEIRO', '/opt/gravae-copiloto/roteiro.json'),
+    'pagina': os.environ.get('PAGINA', '/opt/gravae-copiloto/pagina'),
+    'baixar': os.environ.get('BAIXAR', '/opt/gravae-copiloto/baixar'),
     'sendgrid': os.environ.get('SENDGRID_API_KEY', ''),
     'sendgrid_url': os.environ.get('SENDGRID_URL', 'https://api.sendgrid.com/v3/mail/send'),
     'remetente': os.environ.get('EMAIL_FROM', 'noreply@gravae.io'),
@@ -208,6 +213,22 @@ def openrouter(caminho, corpo, email):
     return status, texto
 
 
+# ---------- arquivos públicos (página, download, versão) ----------
+
+TIPOS = {'.html': 'text/html; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.css': 'text/css; charset=utf-8',
+         '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.zip': 'application/zip',
+         '.woff2': 'font/woff2', '.ico': 'image/x-icon'}
+
+
+def arquivo_publico(pasta, nome):
+    """O caminho do arquivo dentro da pasta, ou None (sem subir de pasta)."""
+    nome = nome.strip('/') or 'index.html'
+    if not re.fullmatch(r'[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*', nome) or '..' in nome:
+        return None
+    caminho = os.path.join(pasta, *nome.split('/'))
+    return caminho if os.path.isfile(caminho) else None
+
+
 # ---------- HTTP ----------
 
 PAGINA = '''<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -243,6 +264,21 @@ class Servico(BaseHTTPRequestHandler):
         self.send_header('Content-Length', '0')
         self.end_headers()
 
+    def _arquivo(self, caminho, cache='no-cache', baixar=False):
+        if not caminho:
+            return self._json(404, {'erro': 'não existe'})
+        with open(caminho, 'rb') as f:
+            corpo = f.read()
+        self.send_response(200)
+        self.send_header('Content-Type', TIPOS.get(os.path.splitext(caminho)[1].lower(), 'application/octet-stream'))
+        self.send_header('Content-Length', str(len(corpo)))
+        self.send_header('Cache-Control', cache)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        if baixar:
+            self.send_header('Content-Disposition', f'attachment; filename="{os.path.basename(caminho)}"')
+        self.end_headers()
+        self.wfile.write(corpo)
+
     def _quem(self):
         cabecalho = self.headers.get('Authorization', '')
         dados = conferir(cabecalho[7:]) if cabecalho.startswith('Bearer ') else None
@@ -265,6 +301,14 @@ class Servico(BaseHTTPRequestHandler):
             return self._entrar(consulta.get('volta', ''))
         if url.path == '/callback':
             return self._callback(consulta)
+        if url.path == '/instalar':
+            return self._ir(CFG['base'] + '/instalar/')
+        if url.path.startswith('/instalar/'):
+            return self._arquivo(arquivo_publico(CFG['pagina'], url.path[len('/instalar/'):]), cache='no-cache')
+        if url.path.startswith('/baixar/'):
+            return self._arquivo(arquivo_publico(CFG['baixar'], url.path[len('/baixar/'):]), cache='no-cache', baixar=True)
+        if url.path == '/versao':
+            return self._arquivo(arquivo_publico(CFG['baixar'], 'versao.json'), cache='no-cache')
         email = self._quem()
         if not email:
             return self._json(401, {'erro': 'entre com a conta da Gravaê'})

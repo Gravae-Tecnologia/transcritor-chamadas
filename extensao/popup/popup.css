@@ -92,6 +92,8 @@ input[type="checkbox"] { accent-color: var(--vermelho); }
 .arquivo { color: var(--vermelho-texto); cursor: pointer; font-size: 12px; font-weight: 600; }
 .arquivo input { display: none; }
 button.icone svg { display: block; }
+.versao-nova { display: block; margin-bottom: 10px; padding: 8px 11px; border-radius: 8px; background: var(--vermelho-fundo); border: 1px solid #d3040440; color: var(--vermelho-texto); font-weight: 600; font-size: 12px; text-decoration: none; }
+.versao-nova:hover { border-color: var(--vermelho); }
 .aviso { margin: 0; padding: 6px 9px; font-size: 12px; color: var(--ambar); background: var(--ambar-fundo); border-radius: 8px; }
 
 .linha-topo { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }

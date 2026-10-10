@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Instalar o Transcritor · Gravaê</title>
+  <link rel="icon" href="favicon.png">
+  <meta name="description" content="Passo a passo para instalar a extensão do Transcritor e o copiloto de vendas da Gravaê no Chrome.">
+  <style>
+    :root {
+      color-scheme: dark;
+      --fundo: #09090b;
+      --superficie: #18181b;
+      --superficie-2: #27272a;
+      --texto: #f2f2fa;
+      --texto-2: #e1e1e6;
+      --suave: #a8a8b3;
+      --borda: #ffffff14;
+      --contorno: #52525b;
+      --vermelho: #d30404;
+      --vermelho-medio: #a90303;
+      --vermelho-texto: #ff7a6b;
+      --ambar: #f5b833;
+      --ambar-fundo: #f5b83314;
+      --verde: #1fb055;
+      --raio: 12px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body { background: var(--fundo); color: var(--texto); font: 16px/1.6 "Segoe UI", system-ui, -apple-system, sans-serif; }
+    main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+    a { color: var(--vermelho-texto); }
+    code, kbd { font: 14px ui-monospace, Consolas, monospace; background: var(--superficie-2); border: 1px solid var(--borda); border-radius: 6px; padding: 1px 6px; color: var(--texto); }
+    h1, h2, h3 { line-height: 1.25; margin: 0; }
+
+    .topo { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+    .topo img { width: 52px; height: 52px; }
+    .topo h1 { font-size: 26px; }
+    .topo span { display: block; font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--vermelho-texto); }
+    .intro { color: var(--texto-2); margin: 0 0 22px; }
+
+    .baixar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 18px; background: var(--superficie); border: 1px solid var(--borda); border-radius: var(--raio); margin-bottom: 30px; }
+    .botao { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 10px; background: var(--vermelho); color: #fff; font-weight: 700; text-decoration: none; border: 0; cursor: pointer; font-size: 16px; }
+    .botao:hover { background: var(--vermelho-medio); }
+    .botao.secundario { background: var(--superficie-2); border: 1px solid var(--contorno); font-weight: 600; font-size: 14px; padding: 6px 12px; }
+    .versao { color: var(--suave); font-size: 14px; }
+
+    ol.passos { list-style: none; counter-reset: passo; margin: 0; padding: 0; display: grid; gap: 14px; }
+    ol.passos > li { counter-increment: passo; position: relative; padding: 18px 18px 18px 64px; background: var(--superficie); border: 1px solid var(--borda); border-radius: var(--raio); }
+    ol.passos > li::before { content: counter(passo); position: absolute; left: 18px; top: 16px; width: 32px; height: 32px; border-radius: 50%; background: var(--vermelho); color: #fff; font-weight: 800; text-align: center; line-height: 32px; }
+    ol.passos h3 { font-size: 18px; margin-bottom: 6px; }
+    ol.passos p, ol.passos ul { margin: 6px 0; color: var(--texto-2); }
+    ol.passos ul { padding-left: 20px; }
+    figure { margin: 12px 0 0; }
+    figure img { display: block; max-width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--contorno); background: #fff; }
+    figure.estreita img { max-width: 340px; background: none; }
+    figcaption { font-size: 13px; color: var(--suave); margin-top: 6px; }
+    .copiar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+
+    .aviso { padding: 12px 14px; border-radius: 10px; background: var(--ambar-fundo); border: 1px solid #f5b83340; color: var(--texto-2); margin: 10px 0 0; font-size: 15px; }
+    .aviso b { color: var(--ambar); }
+
+    section { margin-top: 38px; }
+    section h2 { font-size: 22px; margin-bottom: 12px; }
+    section > p { color: var(--texto-2); }
+    dl { margin: 0; display: grid; gap: 12px; }
+    dt { font-weight: 700; }
+    dd { margin: 2px 0 0; color: var(--texto-2); }
+    footer { margin-top: 46px; color: var(--suave); font-size: 13px; }
+
+    @media (max-width: 520px) {
+      ol.passos > li { padding: 56px 14px 16px; }
+      ol.passos > li::before { top: 14px; left: 14px; }
+      .topo h1 { font-size: 22px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header class="topo">
+    <img src="icone.png" alt="">
+    <div><span>Gravaê</span><h1>Instalar o Transcritor e o copiloto</h1></div>
+  </header>
+  <p class="intro">A extensão transcreve as calls do Google Meet com o nome de cada pessoa e, com o copiloto, sugere o que falar durante a call de venda e escreve o resumo no fim. Leva uns 3 minutos para instalar, e é só uma vez.</p>
+
+  <div class="baixar">
+    <a class="botao" href="../baixar/transcritor-gravae.zip" download>⬇ Baixar a extensão</a>
+    <span class="versao" id="versao">versão mais recente</span>
+  </div>
+
+  <ol class="passos">
+    <li>
+      <h3>Baixe e descompacte numa pasta fixa</h3>
+      <p>Clique em <b>Baixar a extensão</b>, aqui em cima. Vem o arquivo <code>transcritor-gravae.zip</code>.</p>
+      <ul>
+        <li><b>Windows:</b> abra a pasta Downloads, clique com o botão direito no arquivo › <b>Extrair tudo…</b> › <b>Procurar…</b> › escolha <b>Documentos</b> › <b>Extrair</b>. Fica a pasta <code>Documentos\transcritor-gravae</code>.</li>
+        <li><b>Mac:</b> dê dois cliques no arquivo e arraste a pasta <code>transcritor-gravae</code> para <b>Documentos</b>.</li>
+      </ul>
+      <p class="aviso"><b>Não apague nem mova essa pasta depois.</b> O Chrome usa ela o tempo todo; se ela sumir, a extensão para de funcionar.</p>
+    </li>
+
+    <li>
+      <h3>Abra a página de extensões do Chrome</h3>
+      <p>Copie o endereço abaixo, cole na barra de endereço do Chrome e aperte <kbd>Enter</kbd>. (O Chrome não deixa abrir essa página por link.)</p>
+      <div class="copiar"><code>chrome://extensions</code> <button class="botao secundario" type="button" data-copiar="chrome://extensions">Copiar</button></div>
+    </li>
+
+    <li>
+      <h3>Ligue o “Modo do desenvolvedor”</h3>
+      <p>É a chave no canto de cima, à direita.</p>
+      <figure><img src="1-modo-desenvolvedor.png" alt="Página de extensões do Chrome com a chave Modo do desenvolvedor destacada, no canto de cima à direita" width="1180" height="120"></figure>
+    </li>
+
+    <li>
+      <h3>Clique em “Carregar sem compactação” e escolha a pasta</h3>
+      <p>Aparece uma linha de botões. Clique em <b>Carregar sem compactação</b>, entre em <b>Documentos</b>, clique uma vez na pasta <code>transcritor-gravae</code> e em <b>Selecionar pasta</b>.</p>
+      <figure><img src="2-carregar-sem-compactacao.png" alt="Botão Carregar sem compactação destacado, no canto de cima à esquerda" width="1180" height="120"></figure>
+      <p>Pronto: aparece o cartão <b>Transcritor de Chamadas</b>, com o ícone <b>G.</b> da Gravaê.</p>
+    </li>
+
+    <li>
+      <h3>Fixe o ícone na barra do Chrome</h3>
+      <p>Clique no ícone de quebra-cabeça 🧩, no canto de cima à direita do Chrome, e no alfinete 📌 ao lado de <b>Transcritor de Chamadas</b>. O <b>G.</b> fica sempre à vista.</p>
+    </li>
+
+    <li>
+      <h3>Entre com o seu e-mail da Gravaê</h3>
+      <p>Clique no <b>G.</b> › na engrenagem <b>⚙</b> › em <b>Copiloto de vendas</b>, digite o seu e-mail <code>@gravae.io</code> e clique em <b>Mandar código</b>. Chega um e-mail com um código de 6 dígitos: digite e clique em <b>Entrar</b>.</p>
+      <figure class="estreita"><img src="4-login.png" alt="Janela da extensão com o campo de e-mail e o botão Mandar código destacados" width="380" height="700"><figcaption>O login fica guardado e se renova sozinho.</figcaption></figure>
+    </li>
+
+    <li>
+      <h3>Use numa call</h3>
+      <p>Entre numa call do Google Meet. As legendas ligam sozinhas e aparece <b>Transcrevendo</b> no canto da tela. Para o copiloto: clique no <b>G.</b> › <b>Abrir o copiloto</b>. O painel abre ao lado do Meet, e o cliente não vê, nem quando você compartilha a tela.</p>
+      <figure class="estreita"><img src="5-copiloto.png" alt="Painel do copiloto com a sugestão Diga agora, a objeção do cliente e as etapas da call" width="400" height="900"><figcaption>Exemplo do painel numa call de venda.</figcaption></figure>
+      <p>As calls ficam na agenda: <b>G.</b> › ícone de calendário 📅.</p>
+      <p class="aviso"><b>Avise quem está na call</b> que ela está sendo transcrita.</p>
+    </li>
+  </ol>
+
+  <section id="atualizar">
+    <h2>Como atualizar</h2>
+    <p>Quando sair uma versão nova, a extensão avisa. Para atualizar, sem perder o login nem o histórico:</p>
+    <ol class="passos">
+      <li><h3>Baixe de novo</h3><p>Clique em <b>Baixar a extensão</b>, aqui no topo.</p></li>
+      <li><h3>Descompacte por cima da mesma pasta</h3><p>Extraia em <b>Documentos</b>, como na instalação. Quando perguntar, escolha <b>Substituir os arquivos</b>.</p></li>
+      <li><h3>Recarregue</h3><p>Em <code>chrome://extensions</code>, clique na setinha circular ↻ do <b>Transcritor de Chamadas</b>.</p></li>
+    </ol>
+    <p class="aviso"><b>Nunca remova a extensão para instalar de novo:</b> remover apaga o login e o histórico das calls.</p>
+  </section>
+
+  <section>
+    <h2>Se der problema</h2>
+    <dl>
+      <dt>Ao abrir o Chrome, aparece “Desativar extensões no modo do desenvolvedor”</dt>
+      <dd>É um aviso normal para extensões instaladas assim. Feche o aviso no X; não clique em “Desativar”.</dd>
+      <dt>Deu erro “Manifesto ausente” ao carregar</dt>
+      <dd>Você escolheu a pasta errada. Escolha a pasta <code>transcritor-gravae</code>, a que tem o arquivo <code>manifest.json</code> dentro.</dd>
+      <dt>As legendas saem em inglês</dt>
+      <dd>No Meet: ⋮ › <b>Configurações</b> › <b>Legendas</b> › <b>Português</b>.</dd>
+      <dt>O código não chegou</dt>
+      <dd>Olhe o spam e confira se usou o e-mail <code>@gravae.io</code>. Dá para pedir outro depois de alguns minutos.</dd>
+      <dt>A transcrição parou ou saiu incompleta</dt>
+      <dd>Durante a call, clique no <b>G.</b> › <b>Diagnóstico</b> e mande o que for copiado para o João.</dd>
+    </dl>
+  </section>
+
+  <footer>Transcritor de Chamadas · Gravaê · <span id="rodape">—</span></footer>
+</main>
+<script>
+  // A versão publicada vem do servidor, que a monta da main do GitHub.
+  fetch('../versao', { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((v) => {
+      if (!v) return
+      const data = v.data ? new Date(v.data).toLocaleDateString('pt-BR') : ''
+      document.getElementById('versao').textContent = `versão ${v.versao}${data ? ' · de ' + data : ''}`
+      document.getElementById('rodape').textContent = `versão ${v.versao} (${v.commit})`
+    })
+    .catch(() => {})
+  for (const b of document.querySelectorAll('[data-copiar]')) {
+    b.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(b.dataset.copiar)
+        b.textContent = 'Copiado'
+      } catch {
+        b.textContent = 'Selecione e copie'
+      }
+      setTimeout(() => (b.textContent = 'Copiar'), 1800)
+    })
+  }
+</script>
+</body>
+</html>

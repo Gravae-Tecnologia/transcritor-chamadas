@@ -72,6 +72,24 @@ botaoMandar.addEventListener('click', async () => {
   if (r && r.erro) return olharConta('Não deu: ' + r.erro)
   await chrome.storage.session.set({ loginPendente: { email, em: Date.now() } })
   await olharConta()
+
+// Versão nova publicada (o servidor monta da main do GitHub): avisa e leva ao "como atualizar".
+function versaoMaior(a, b) {
+  const x = a.split('.').map(Number)
+  const y = b.split('.').map(Number)
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0)
+  return false
+}
+fetch('https://intake.gravae.io/copiloto/versao', { cache: 'no-store' })
+  .then((r) => (r.ok ? r.json() : null))
+  .then((v) => {
+    const atual = chrome.runtime.getManifest().version
+    if (!v || !v.versao || !versaoMaior(v.versao, atual)) return
+    const aviso = document.getElementById('versao-nova')
+    aviso.textContent = `Versão ${v.versao} disponível (você tem a ${atual}). Clique para ver como atualizar.`
+    aviso.hidden = false
+  })
+  .catch(() => {})
   campoCodigo.focus()
 })
 campoEmail.addEventListener('keydown', (e) => e.key === 'Enter' && botaoMandar.click())

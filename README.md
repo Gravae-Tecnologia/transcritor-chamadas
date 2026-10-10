@@ -16,9 +16,16 @@ Pode começar.
 
 ## Instalar
 
-1. Baixe este repositório (**Code › Download ZIP**) e descompacte.
+**Passo a passo com fotos, para quem não é programador:**
+https://intake.gravae.io/copiloto/instalar/ (o botão de lá baixa sempre a versão
+mais nova, já como a pasta pronta para carregar).
+
+Em resumo:
+
+1. Baixe `transcritor-gravae.zip` na página acima (ou este repositório, **Code ›
+   Download ZIP**, e use a pasta `extensao/`) e descompacte numa pasta fixa.
 2. Abra `chrome://extensions` e ligue o **Modo do desenvolvedor**, no canto de cima à direita.
-3. Clique em **Carregar sem compactação** e escolha a pasta `extensao/`.
+3. Clique em **Carregar sem compactação** e escolha a pasta.
 4. Fixe o ícone (o **G.** da Gravaê) na barra do Chrome.
 
 Já está numa chamada? Não precisa recarregar: ao ser instalada ou atualizada, a
@@ -114,6 +121,26 @@ vivo. Clicando numa call, aparecem o resumo do copiloto e a transcrição inteir
 com a cor de cada pessoa e busca. Dá para buscar em todas as transcrições,
 baixar, copiar, apagar e gerar o resumo de uma call que acabou sem ele.
 
+## Publicar uma versão nova
+
+A `main` deste repositório é a única fonte. Para publicar:
+
+1. Suba a versão em `extensao/manifest.json` (`"version"`) se mudou a extensão.
+2. Commit e push na `main`.
+
+Em até 2 minutos, a VM `coaching-tools` (`intermediario/sincronizar.sh`, pelo
+timer `gravae-copiloto-sincronizar`) puxa a `main` e atualiza sozinha:
+
+- o **intermediário**, só se o `servico.py` mudou; ele é conferido antes, e se o
+  novo não subir, volta o anterior e o commit fica de fora até o próximo.
+  Reiniciar não desloga ninguém;
+- a **página de instalação** (`intermediario/pagina/`);
+- o **`.zip` da extensão** em `/copiloto/baixar/transcritor-gravae.zip` e a
+  versão em `/copiloto/versao`.
+
+A extensão compara a versão dela com `/copiloto/versao` e avisa no popup quando
+há uma nova, com o link do "como atualizar".
+
 ## Estrutura
 
 ```
@@ -133,7 +160,8 @@ extensao/
   estilo/gravae.css    o tema, comum ao painel e à agenda
   fontes/              Space Grotesk e Open Sans (SIL OFL, licenças junto)
   icones/              o G. da Gravaê
-intermediario/         o serviço que guarda a chave e faz o login (ver acima)
+intermediario/         o serviço que guarda a chave e faz o login (ver acima), a página de
+                       instalação (pagina/) e o sincronizar.sh que publica a main na VM
 testes/
   falas.test.js        node --test testes/falas.test.js testes/copiloto.test.js
   copiloto.test.js     o copiloto com uma OpenRouter de mentira

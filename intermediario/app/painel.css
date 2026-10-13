@@ -90,9 +90,9 @@ main > * { flex: none; }
 .conversa li { padding: 7px 0; border-top: 1px solid var(--borda); }
 .conversa li:first-child { border-top: 0; }
 .conversa .quem { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; }
-.conversa .quem b { color: var(--suave); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conversa .quem b { color: var(--vermelho-texto); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conversa .quem time { color: var(--fraco); font-variant-numeric: tabular-nums; flex: none; }
-.conversa li.vendedor .quem b { color: var(--vermelho-texto); }
+.conversa li.vendedor .quem b { color: #fff; } /* o próprio vendedor em branco; os outros em vermelho */
 .conversa p { margin: 2px 0 0; font-size: 14px; line-height: 1.45; color: var(--texto-2); }
 .conversa .antes { font-size: 12px; color: var(--fraco); border-top: 0; padding-top: 2px; }
 .sem-falas { margin: 0; padding: 4px 14px 14px; }

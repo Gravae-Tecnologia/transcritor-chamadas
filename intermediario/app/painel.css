@@ -1,48 +1,75 @@
-body { min-height: 100vh; display: flex; flex-direction: column; }
+/* O painel cabe na altura da janela: o topo e a faixa do copiloto ficam fixos,
+   e a transcrição ocupa o que sobra, rolando por dentro. */
+html, body { height: 100%; }
+body { display: flex; flex-direction: column; overflow: hidden; }
 
 .topo {
-  position: sticky; top: 0; z-index: 2;
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 14px; background: var(--fundo); border-bottom: 1px solid var(--borda);
+  display: flex; align-items: center; gap: 10px; flex: none;
+  padding: 10px 14px; background: var(--fundo); border-bottom: 1px solid var(--borda);
 }
-.marca { width: 30px; height: 30px; }
-.nome { display: grid; line-height: 1.15; min-width: 0; margin-right: auto; }
-.nome h1 { font-size: 16px; }
-.nome span { font-size: 12px; color: var(--suave); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.marca { width: 26px; height: 26px; flex: none; }
+.topo h1 { font-size: 15px; margin-right: auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topo .chip { flex: none; }
 
-main { flex: 1; display: grid; gap: 10px; align-content: start; padding: 12px 14px; }
-.cartao { padding: 12px 14px; }
-.linha { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+/* A faixa do copiloto: o interruptor e quanto cada lado falou, numa linha. */
+.controle {
+  display: flex; align-items: center; gap: 10px; flex: none;
+  padding: 8px 14px; border-bottom: 1px solid var(--borda);
+}
+.controle #custo { margin-right: auto; }
 .fraco { color: var(--fraco); font-size: 12px; }
-.aviso-grande p { margin: 6px 0 10px; color: var(--texto-2); }
-
-.fala .barra { height: 8px; border-radius: 999px; background: var(--superficie-2); overflow: hidden; }
+.fala { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--suave); margin-left: auto; }
+.fala b { color: var(--texto-2); }
+.fala .barra { width: 56px; height: 6px; border-radius: 999px; background: var(--superficie-2); overflow: hidden; }
 .fala .barra span { display: block; height: 100%; background: var(--vermelho-texto); transition: width .4s; }
-.fala .legenda { display: flex; justify-content: space-between; font-size: 12px; color: var(--suave); margin-top: 4px; }
 .fala.demais .barra span { background: var(--ambar); }
+.fala.demais b { color: var(--ambar); }
+
+main { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; }
+main > * { flex: none; }
+.cartao { padding: 12px 14px; }
+.aviso p { margin: 6px 0 10px; color: var(--texto-2); }
+
+.esperando { display: flex; align-items: baseline; gap: 8px; padding: 10px 14px; font-size: 13px; color: var(--suave); }
+.esperando .rotulo { flex: none; }
 
 .sugestao { position: relative; overflow: hidden; padding-left: 18px; }
 .sugestao::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--vermelho); }
 .sugestao .rotulo { color: var(--vermelho-texto); display: flex; align-items: center; gap: 8px; }
-.sugestao .frase { margin: 8px 0 12px; font-size: 19px; line-height: 1.32; font-weight: 600; color: #fff; }
+.sugestao .frase { margin: 6px 0 8px; font-size: 18px; line-height: 1.32; font-weight: 600; color: #fff; }
 .sugestao .rodape { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sugestao .rodape button { flex: none; padding: 4px 8px; }
 .sugestao.nova { animation: chegou 1s; }
 @keyframes chegou { from { box-shadow: 0 0 0 3px var(--vermelho); } to { box-shadow: 0 0 0 0 transparent; } }
 
-.objecao { background: var(--ambar-fundo); border-color: #f5b83340; }
-.objecao .rotulo { color: var(--ambar); }
+.objecao { background: var(--ambar-fundo); border-color: #f5b83340; cursor: pointer; }
+.objecao .rotulo { color: var(--ambar); display: flex; gap: 4px; }
 .objecao .rotulo span { color: var(--texto); letter-spacing: .02em; }
+.objecao .rotulo .mais { margin-left: auto; color: var(--suave); text-transform: none; letter-spacing: 0; font: 600 12px var(--corpo); white-space: nowrap; }
+/* Fechada, a objeção mostra 3 linhas da resposta; o resto abre no clique. */
+.objecao:not(.aberta) #obj-resposta { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.objecao:not(.aberta) .evitar { display: none; }
 .objecao p { margin: 6px 0 0; color: var(--texto-2); }
 .objecao .evitar { font-size: 12px; color: var(--suave); }
 
 .alertas { display: grid; gap: 6px; }
+.alertas:empty { display: none; }
 .alerta { padding: 9px 12px; border-radius: 8px; background: var(--vermelho-fundo); color: var(--vermelho-texto); font-weight: 600; font-size: 13px; border: 1px solid #d3040440; }
 .alerta.compra { background: var(--verde-fundo); color: var(--verde-texto); border-color: #1fb05540; }
 
 .erro { color: var(--vermelho-texto); font-size: 13px; }
 
-.roteiro h3 { font-size: 14px; margin-bottom: 6px; display: flex; justify-content: space-between; }
-.etapas { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.resumo .md { margin-top: 6px; }
+.resumo .md h2:first-child { display: none; } /* o título já está no topo */
+
+/* O roteiro fica fechado numa linha; abre quando o vendedor quer olhar. */
+.roteiro { padding: 0; }
+.roteiro > summary { list-style: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; }
+.roteiro > summary::-webkit-details-marker { display: none; }
+.roteiro > summary::after { content: "▸"; margin-left: auto; color: var(--fraco); transition: transform .15s; }
+.roteiro[open] > summary::after { transform: rotate(90deg); }
+.roteiro #progresso { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.etapas { list-style: none; margin: 0; padding: 0 8px 8px; display: grid; gap: 1px; }
 .etapa > summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 6px 6px; border-radius: 6px; cursor: pointer; }
 .etapa > summary::-webkit-details-marker { display: none; }
 .etapa > summary:hover { background: var(--superficie-2); }
@@ -55,13 +82,23 @@ main { flex: 1; display: grid; gap: 10px; align-content: start; padding: 12px 14
 .etapa .detalhe { padding: 2px 8px 10px 30px; font-size: 13px; color: var(--suave); }
 .etapa .detalhe ul { margin: 6px 0; padding-left: 18px; color: var(--texto-2); }
 
-.resumo .md { margin-top: 6px; }
-.resumo .md h2:first-child { display: none; } /* o título já está no topo */
-
-.conversa-caixa summary { cursor: pointer; }
-.conversa { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; max-height: 340px; overflow: auto; }
-.conversa li { font-size: 13px; color: var(--texto-2); }
-.conversa li b { display: block; font-size: 12px; color: var(--suave); }
-.conversa li.vendedor b { color: var(--vermelho-texto); }
-
-.pe { padding: 8px 14px 14px; border-top: 1px solid var(--borda); }
+/* A transcrição: ocupa o resto da altura e acompanha a fala mais nova. */
+.transcricao { flex: 1 0 240px; display: flex; flex-direction: column; min-height: 240px; position: relative; padding: 0; }
+.transcricao .cab { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 4px 14px; }
+.transcricao .cab button { padding: 2px 8px; font-size: 12px; }
+.conversa { flex: 1; min-height: 0; overflow: auto; list-style: none; margin: 0; padding: 0 14px 12px; }
+.conversa li { padding: 7px 0; border-top: 1px solid var(--borda); }
+.conversa li:first-child { border-top: 0; }
+.conversa .quem { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; }
+.conversa .quem b { color: var(--suave); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conversa .quem time { color: var(--fraco); font-variant-numeric: tabular-nums; flex: none; }
+.conversa li.vendedor .quem b { color: var(--vermelho-texto); }
+.conversa p { margin: 2px 0 0; font-size: 14px; line-height: 1.45; color: var(--texto-2); }
+.conversa .antes { font-size: 12px; color: var(--fraco); border-top: 0; padding-top: 2px; }
+.sem-falas { margin: 0; padding: 4px 14px 14px; }
+.ao-vivo {
+  position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%);
+  background: var(--vermelho); border-color: var(--vermelho); color: #fff;
+  border-radius: 999px; padding: 4px 12px; font-size: 12px; box-shadow: 0 4px 14px #0008;
+}
+.ao-vivo:hover { background: var(--vermelho-medio); }

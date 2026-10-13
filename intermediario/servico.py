@@ -274,6 +274,19 @@ def arquivo_publico(pasta, nome):
     return caminho if os.path.isfile(caminho) else None
 
 
+def com_versoes(pasta, html):
+    """Põe ?v=<hash do arquivo> nos .js, .css e .png que a página chama. O
+    Cloudflare manda o navegador guardar esses arquivos por 4 h; com o hash no
+    endereço, a página nova nunca roda com o script ou o estilo de antes."""
+    def versao(m):
+        caminho = arquivo_publico(pasta, m.group(2))
+        if not caminho:
+            return m.group(0)
+        with open(caminho, 'rb') as f:
+            return f'{m.group(1)}="{m.group(2)}?v={hashlib.sha1(f.read()).hexdigest()[:10]}"'
+    return re.sub(r'\b(src|href)="([A-Za-z0-9._-]+\.(?:js|css|png))"', versao, html)
+
+
 # ---------- HTTP ----------
 
 PAGINA = '''<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -309,11 +322,13 @@ class Servico(BaseHTTPRequestHandler):
         self.send_header('Content-Length', '0')
         self.end_headers()
 
-    def _arquivo(self, caminho, cache='no-cache', baixar=False, extras=None):
+    def _arquivo(self, caminho, cache='no-cache', baixar=False, extras=None, versoes=False):
         if not caminho:
             return self._json(404, {'erro': 'não existe'})
         with open(caminho, 'rb') as f:
             corpo = f.read()
+        if versoes and caminho.endswith('.html'):
+            corpo = com_versoes(os.path.dirname(caminho), corpo.decode('utf-8')).encode('utf-8')
         self.send_response(200)
         self.send_header('Content-Type', TIPOS.get(os.path.splitext(caminho)[1].lower(), 'application/octet-stream'))
         self.send_header('Content-Length', str(len(corpo)))
@@ -358,7 +373,7 @@ class Servico(BaseHTTPRequestHandler):
             return self._arquivo(arquivo_publico(CFG['baixar'], 'versao.json'), cache='no-cache')
         if url.path.startswith('/app/'):
             # Só abre dentro da extensão (frame-ancestors): ninguém embute o painel num site.
-            return self._arquivo(arquivo_publico(CFG['app'], url.path[len('/app/'):]), cache='no-cache',
+            return self._arquivo(arquivo_publico(CFG['app'], url.path[len('/app/'):]), cache='no-cache', versoes=True,
                                  extras={'Content-Security-Policy': "frame-ancestors chrome-extension: 'self'"})
         email = self._quem()
         if not email:

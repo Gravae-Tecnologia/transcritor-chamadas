@@ -10,59 +10,51 @@
 <body>
   <header class="topo">
     <img class="marca" src="icone.png" alt="">
-    <div class="nome">
-      <h1>Copiloto</h1>
-      <span id="titulo">Gravaê</span>
-    </div>
+    <h1 id="titulo">Copiloto</h1>
     <span id="situacao" class="chip" hidden></span>
   </header>
 
+  <section id="controle" class="controle" hidden>
+    <label class="interruptor" title="Ligado, o copiloto lê a conversa (inclusive o que já foi dito), marca as etapas do roteiro, avisa das objeções e sugere a próxima frase. Custa centavos de dólar por call.">
+      <input type="checkbox" id="ligado"> <span>Copiloto</span>
+    </label>
+    <span id="custo" class="fraco"></span>
+    <div id="fala" class="fala" title="Quanto cada lado falou (por palavras)" hidden>
+      <span>Você <b id="pct-vendedor">0%</b></span>
+      <div class="barra"><span id="fala-vendedor"></span></div>
+    </div>
+  </section>
+
   <main id="corpo">
-    <section id="sem-call" class="cartao aviso-grande" hidden>
+    <section id="sem-call" class="cartao aviso" hidden>
       <div class="rotulo">Nenhuma chamada nesta aba</div>
-      <p>Entre numa chamada do Google Meet nesta aba. A transcrição começa sozinha e o copiloto acompanha a conversa aqui do lado. O cliente não vê este painel, nem quando você compartilha a tela.</p>
-      <button id="agenda-1" type="button">Abrir a agenda de calls</button>
+      <p>Entre numa chamada do Google Meet nesta aba: a transcrição aparece aqui, ao vivo. O cliente não vê este painel.</p>
+      <button id="agenda-1" type="button">📅 Agenda de calls</button>
     </section>
 
-    <section id="sem-copiloto" class="cartao aviso-grande" hidden>
+    <section id="sem-copiloto" class="cartao aviso" hidden>
       <div class="rotulo">Falta configurar</div>
       <p id="sem-copiloto-texto"></p>
     </section>
 
-    <section id="controle" class="cartao linha" hidden>
-      <label class="interruptor"><input type="checkbox" id="ligado"> <span>Copiloto ligado</span></label>
-      <span id="custo" class="fraco"></span>
+    <section id="esperando" class="cartao esperando" hidden>
+      <span id="esperando-rotulo" class="rotulo">Ouvindo</span>
+      <span id="esperando-texto"></span>
     </section>
-
-    <section id="desligado" class="cartao aviso-grande" hidden>
-      <div class="rotulo">Copiloto desligado</div>
-      <p>A transcrição segue normal. Ligado, o copiloto lê a conversa (inclusive o que já foi dito), marca as etapas do roteiro, avisa das objeções e sugere a próxima frase. Custa centavos de dólar por call.</p>
-      <button id="ligar" class="principal" type="button">Ligar o copiloto</button>
-    </section>
-
-    <div id="fala" class="fala" title="Quanto cada lado falou (por palavras)" hidden>
-      <div class="barra"><span id="fala-vendedor"></span></div>
-      <div class="legenda"><span>Você <b id="pct-vendedor">0%</b></span><span>Cliente <b id="pct-cliente">0%</b></span></div>
-    </div>
 
     <section id="sugestao" class="cartao sugestao" hidden>
       <div class="rotulo">Diga agora <span id="sug-etapa" class="chip"></span></div>
       <p id="sug-frase" class="frase"></p>
-      <div class="rodape"><span id="sug-porque" class="fraco"></span><button id="outra" type="button">Outra sugestão</button></div>
+      <div class="rodape"><span id="sug-porque" class="fraco"></span><button id="outra" class="discreto" type="button" title="Pedir outra sugestão">↻ Outra</button></div>
     </section>
 
-    <section id="objecao" class="cartao objecao" hidden>
-      <div class="rotulo">Objeção: <span id="obj-nome"></span></div>
+    <section id="objecao" class="cartao objecao" title="Clique para ver tudo" hidden>
+      <div class="rotulo">Objeção: <span id="obj-nome"></span><span id="obj-mais" class="mais">ver tudo ▾</span></div>
       <p id="obj-resposta"></p>
       <p class="evitar"><b>Evite:</b> <span id="obj-evitar"></span></p>
     </section>
 
     <div id="alertas" class="alertas"></div>
-
-    <section id="esperando" class="cartao aviso-grande" hidden>
-      <div id="esperando-rotulo" class="rotulo">Ouvindo</div>
-      <p id="esperando-texto">Assim que a conversa andar, a primeira sugestão aparece aqui.</p>
-    </section>
 
     <section id="erro" class="cartao erro" hidden></section>
 
@@ -71,20 +63,21 @@
       <div id="resumo-md" class="md"></div>
     </section>
 
-    <section id="roteiro" class="cartao roteiro" hidden>
-      <h3><span id="roteiro-nome">Roteiro</span> <span id="progresso" class="fraco"></span></h3>
+    <details id="roteiro" class="cartao roteiro" hidden>
+      <summary><span class="rotulo">Roteiro</span> <span id="progresso" class="fraco"></span></summary>
       <ol id="etapas" class="etapas"></ol>
-    </section>
-
-    <details id="conversa-caixa" class="cartao conversa-caixa" hidden>
-      <summary class="rotulo">Conversa</summary>
-      <ol id="conversa" class="conversa"></ol>
     </details>
-  </main>
 
-  <footer class="pe">
-    <button id="agenda-2" class="discreto" type="button">📅 Agenda de calls</button>
-  </footer>
+    <section id="transcricao" class="cartao transcricao" hidden>
+      <div class="cab">
+        <span class="rotulo">Transcrição</span>
+        <button id="agenda-2" class="discreto" type="button" title="A call inteira, na agenda">Agenda ↗</button>
+      </div>
+      <ol id="conversa" class="conversa"></ol>
+      <p id="sem-falas" class="fraco sem-falas" hidden>As falas aparecem aqui assim que alguém falar.</p>
+      <button id="ao-vivo" class="ao-vivo" type="button" hidden>↓ Ao vivo</button>
+    </section>
+  </main>
 
   <script src="markdown.js"></script>
   <script src="ponte.js"></script>

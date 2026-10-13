@@ -1,5 +1,5 @@
 """Teste do intermediário sem rede: uma OpenRouter de mentira e uma porta própria."""
-import json, os, subprocess, sys, tempfile, threading, time, urllib.request, urllib.error
+import json, os, re, subprocess, sys, tempfile, threading, time, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
@@ -26,7 +26,10 @@ json.dump({'nome': 'Roteiro de teste', 'objetivo_da_call': 'Sair com proposta.',
            'etapas': [{'id': 'abertura', 'nome': 'Abertura', 'objetivo': 'Motivo.', 'coberto_quando': 'motivo dito',
                        'perguntas': ['O que te trouxe?'], 'dica': 'Ouça.'}]}, open(os.path.join(pasta, 'roteiro.json'), 'w'))
 os.makedirs(os.path.join(pasta, 'app'))
-open(os.path.join(pasta, 'app', 'painel.html'), 'w', encoding='utf-8').write('<h1>Painel</h1>')
+open(os.path.join(pasta, 'app', 'painel.html'), 'w', encoding='utf-8').write(
+    '<link rel="stylesheet" href="gravae.css"><h1>Painel</h1><script src="painel.js"></script><script src="nao-existe.js"></script>')
+for nome in ('gravae.css', 'painel.js'):
+    open(os.path.join(pasta, 'app', nome), 'w', encoding='utf-8').write('/* ' + nome + ' */')
 env = dict(os.environ, PORTA='18890', OPENROUTER_API_KEY='chave-de-mentira', OPENROUTER_URL='http://127.0.0.1:18891/api/v1',
            GOOGLE_CLIENT_ID='cliente.apps.googleusercontent.com', GOOGLE_CLIENT_SECRET='x', SEGREDO='segredo-de-teste',
            EXTENSOES='abcdefghijklmnopabcdefghijklmnop', LIMITE_DIA_USD='2', ROTEIRO=os.path.join(pasta, 'roteiro.json'),
@@ -168,6 +171,10 @@ try:
     req = urllib.request.Request(B + '/app/painel.html')
     with urllib.request.urlopen(req) as r:
         ok(r.status == 200 and 'frame-ancestors chrome-extension:' in r.headers.get('Content-Security-Policy', ''), 'o painel só abre dentro da extensão')
+        pagina = r.read().decode()
+        ok(re.search(r'src="painel\.js\?v=[0-9a-f]{10}"', pagina) and re.search(r'href="gravae\.css\?v=[0-9a-f]{10}"', pagina),
+           'a página chama os scripts e estilos com a versão no endereço')
+        ok('src="nao-existe.js"' in pagina, 'arquivo que não existe fica como está')
 finally:
     srv.terminate()
 print(f'{len(falhas)} falha(s)')

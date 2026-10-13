@@ -1,7 +1,7 @@
 /* Tema Gravaê, comum ao painel do copiloto e à agenda (o mesmo do popup e dos
    sites da Gravaê). Escuro sempre, vermelho da marca nos botões e no "ao vivo",
    coral para texto vermelho (mais legível sobre o escuro). */
-@import url('../fontes/fontes.css');
+@import url('fontes/fontes.css');
 
 :root {
   color-scheme: dark;

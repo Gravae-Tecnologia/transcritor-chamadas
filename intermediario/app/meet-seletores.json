@@ -1,0 +1,14 @@
+{
+  "_sobre": "Onde a extensão lê as legendas do Google Meet. Ela busca este arquivo uma vez por dia e usa no lugar do que veio dentro dela (extensao/meet/seletores.js): quando o Google mudar a página, na maioria dos casos o conserto é aqui, sem atualizar a extensão. ROTULO_LEGENDAS é uma expressão regular (sem as barras), comparada sem diferenciar maiúsculas.",
+  "versao": 1,
+  "ICONE": ".google-symbols",
+  "ICONE_SAIR": "call_end",
+  "ICONE_LEGENDA_DESLIGADA": "closed_caption_off",
+  "ICONE_LEGENDA_LIGADA": "closed_caption",
+  "REGIOES": "div[role=\"region\"]",
+  "REGIAO_LEGENDAS": "div[role=\"region\"][tabindex=\"0\"]",
+  "ROTULO_LEGENDAS": "legenda|caption|subt[ií]tulo|sous-titre|untertitel|sottotitol",
+  "NOME_USUARIO": ".awLEm",
+  "TITULO": ".u6vdEc",
+  "VOCE": ["Você", "You", "Vous", "Tú", "Tu"]
+}

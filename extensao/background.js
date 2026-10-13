@@ -1,9 +1,16 @@
-// Service worker: marca a aba que está transcrevendo, roda o copiloto de vendas
-// e baixa o arquivo quando a chamada acaba — seja pelo botão de sair, seja
-// fechando a aba.
-importScripts('lib/formato.js', 'lib/copiloto.js')
+// Service worker: marca a aba que está transcrevendo, manda cada call ao
+// servidor da Gravaê (que guarda as calls por pessoa e roda o copiloto) e baixa
+// o arquivo quando a chamada acaba — seja pelo botão de sair, seja fechando a aba.
+//
+// Desde a 0.8 o copiloto não roda mais aqui: o cérebro (intermediario/copiloto.py)
+// e as telas do painel e da agenda (intermediario/app/) moram no servidor, que se
+// atualiza sozinho a cada push na main. A extensão só lê as legendas, manda as
+// falas e abre as telas do servidor.
+importScripts('lib/config.js', 'lib/formato.js')
 
 const CONFIG_PADRAO = { automatico: true, baixarAoSair: true, esconderLegendas: false, meuNome: '' }
+const COPILOTO_PADRAO = { copilotoAutomatico: true }
+const VERSAO = chrome.runtime.getManifest().version
 
 async function baixar(reuniao, extensao = 'md') {
   const conteudo = extensao === 'txt' ? Formato.paraTexto(reuniao) : Formato.paraMarkdown(reuniao)
@@ -25,7 +32,8 @@ async function aoEncerrar(id) {
     reuniao.fim = ultima ? ultima.hora : new Date().toISOString()
     await chrome.storage.local.set({ [chave]: reuniao })
   }
-  encerrarCopiloto(id, reuniao).catch(() => {})
+  // O fim vai ao servidor: ele fecha a call e escreve o resumo do copiloto.
+  sincronizar(id, true).catch(() => {})
   const config = await chrome.storage.sync.get(CONFIG_PADRAO)
   if (config.baixarAoSair && reuniao.falas.length && !reuniao.baixado) {
     await baixar(reuniao)
@@ -56,24 +64,15 @@ async function garantirEmTodas() {
   for (const aba of abas) garantirNaAba(aba.id).catch(() => {})
 }
 
-chrome.runtime.onInstalled.addListener(garantirEmTodas)
-
-// ---------- o copiloto de vendas ----------
-
-// As falas que o meet.js manda alimentam um Copiloto (lib/copiloto.js) por
-// chamada, que lê com o Jev e sugere a próxima frase. O estado vai para
-// storage.local "copiloto:<reunião>", que o painel lateral (copiloto/painel.html)
-// e a agenda (agenda/agenda.html) desenham. Se o service worker dormir, volta
-// de lá.
-//
-// Ninguém precisa de chave: o copiloto fala com o intermediário da Gravaê
-// (intermediario/servico.py, na VM coaching-tools), que guarda a chave da
-// OpenRouter e só atende quem entrou com um e-mail @gravae.io (código de 6
-// dígitos mandado ao e-mail). O roteiro de vendas também vem de lá.
-const INTERMEDIARIO = 'https://intake.gravae.io/copiloto'
-const COPILOTO_PADRAO = { copilotoAutomatico: true }
-const copilotos = new Map() // reunião -> { cop, falas, titulo, inicio, encerrando }
-let relogio = null
+chrome.runtime.onInstalled.addListener(() => {
+  garantirEmTodas()
+  buscarSeletores(true)
+  importarHistorico()
+})
+chrome.runtime.onStartup.addListener(() => {
+  buscarSeletores()
+  importarHistorico()
+})
 
 // ---------- o login (código no e-mail da Gravaê) ----------
 
@@ -93,7 +92,7 @@ async function sessaoAtual() {
 
 async function renovar(s) {
   try {
-    const r = await fetch(INTERMEDIARIO + '/v1/renovar', { method: 'POST', headers: { Authorization: 'Bearer ' + s.token } })
+    const r = await fetch(SERVIDOR + '/v1/renovar', { method: 'POST', headers: { Authorization: 'Bearer ' + s.token } })
     if (!r.ok) return
     const nova = lerSessao((await r.json()).token)
     if (nova) await chrome.storage.local.set({ sessaoCopiloto: nova })
@@ -110,7 +109,7 @@ function lerSessao(token) {
 }
 
 async function postarLogin(caminho, corpo) {
-  const r = await fetch(INTERMEDIARIO + caminho, {
+  const r = await fetch(SERVIDOR + caminho, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(corpo)
@@ -120,7 +119,7 @@ async function postarLogin(caminho, corpo) {
   return dados
 }
 
-// 1) o intermediário manda o código ao e-mail; 2) a pessoa digita e ganha a sessão (30 dias).
+// 1) o servidor manda o código ao e-mail; 2) a pessoa digita e ganha a sessão (30 dias).
 async function pedirCodigo(email) {
   return postarLogin('/codigo', { email })
 }
@@ -130,176 +129,161 @@ async function verificarCodigo(email, codigo) {
   const sessao = lerSessao(dados.token)
   if (!sessao) throw new Error('a sessão veio estranha')
   await chrome.storage.local.set({ sessaoCopiloto: sessao })
-  await buscarRoteiro().catch(() => {})
+  importarHistorico()
   return sessao
 }
 
-// O copiloto chama o intermediário, não a OpenRouter: a resposta vem igual.
-async function chamarIntermediario(url, corpo, timeout) {
+// O servidor, com o login. Login recusado (vencido de verdade) volta a pedir o código.
+async function api(caminho, { metodo = 'GET', corpo } = {}) {
   const sessao = await sessaoAtual()
   if (!sessao) throw new Error('sem login')
-  const caminho = url.endsWith('/systemone') ? '/v1/jev' : '/v1/chat'
-  try {
-    return await Copilotagem.postar(INTERMEDIARIO + caminho, corpo, sessao.token, timeout)
-  } catch (e) {
-    if (/HTTP 401/.test(e.message)) await chrome.storage.local.remove('sessaoCopiloto')
-    if (/HTTP 429/.test(e.message)) throw new Error('limite de gasto do dia atingido')
-    throw e
-  }
-}
-
-// ---------- o roteiro ----------
-
-async function buscarRoteiro() {
-  const sessao = await sessaoAtual()
-  if (!sessao) return null
-  const r = await fetch(INTERMEDIARIO + '/v1/roteiro', { headers: { Authorization: 'Bearer ' + sessao.token } })
-  if (!r.ok) return null
-  const roteiro = await r.json()
-  await chrome.storage.local.set({ roteiroGravae: { roteiro, em: Date.now() } })
-  return roteiro
-}
-
-// Um importado nas opções vale primeiro; depois o da Gravaê (atualizado uma vez por dia).
-async function roteiroAtual() {
-  const { roteiroImportado, roteiroGravae } = await chrome.storage.local.get(['roteiroImportado', 'roteiroGravae'])
-  if (roteiroImportado) return roteiroImportado
-  if (roteiroGravae && Date.now() - roteiroGravae.em < 86400000) return roteiroGravae.roteiro
-  return (await buscarRoteiro().catch(() => null)) || (roteiroGravae && roteiroGravae.roteiro) || null
-}
-
-async function configCopiloto() {
-  const [config, sessao] = await Promise.all([chrome.storage.local.get(COPILOTO_PADRAO), sessaoAtual()])
-  // "chave" para o Copiloto é só o sinal de que há login; quem guarda a chave de verdade é o intermediário.
-  return { ...config, sessao, chave: sessao ? 'intermediario' : '' }
-}
-
-async function copilotoDisponivel() {
-  const [roteiro, config] = await Promise.all([roteiroAtual(), configCopiloto()])
-  return Boolean(roteiro && config.sessao)
-}
-
-async function copilotoDe(id, info = {}) {
-  if (copilotos.has(id)) return copilotos.get(id)
-  const roteiro = await roteiroAtual()
-  if (!roteiro) return null
-  const config = await configCopiloto()
-  const { ['copiloto:' + id]: salvo, ['reuniao:' + id]: reuniao } = await chrome.storage.local.get(['copiloto:' + id, 'reuniao:' + id])
-  if (copilotos.has(id)) return copilotos.get(id) // outra mensagem chegou enquanto lia o storage
-  const guardado = salvo ? salvo.guardado : { ativo: config.copilotoAutomatico && Boolean(config.sessao) }
-  const cop = new Copilotagem.Copiloto(roteiro, { chave: config.chave, post: chamarIntermediario }, guardado)
-  const item = {
-    cop,
-    falas: reuniao ? reuniao.falas.map((f) => ({ ...f })) : [],
-    titulo: info.titulo || (salvo && salvo.titulo) || (reuniao && reuniao.titulo) || 'Google Meet',
-    inicio: info.inicio || (reuniao && reuniao.inicio) || new Date().toISOString(),
-    encerrando: null
-  }
-  cop.atualizar(item.falas, item.inicio)
-  copilotos.set(id, item)
-  if (!relogio) relogio = setInterval(rodarCopilotos, 1000)
-  return item
-}
-
-async function salvarCopiloto(id) {
-  const item = copilotos.get(id)
-  if (!item) return
-  await chrome.storage.local.set({
-    ['copiloto:' + id]: { guardado: item.cop.paraGuardar(), estado: item.cop.estado(), titulo: item.titulo, atualizado: new Date().toISOString() }
+  const r = await fetch(SERVIDOR + caminho, {
+    method: metodo,
+    headers: { Authorization: 'Bearer ' + sessao.token, ...(corpo ? { 'Content-Type': 'application/json' } : {}) },
+    body: corpo ? JSON.stringify(corpo) : undefined
   })
+  const dados = await r.json().catch(() => ({}))
+  if (r.status === 401) await chrome.storage.local.remove('sessaoCopiloto')
+  if (!r.ok) {
+    const erro = new Error(dados.erro || `HTTP ${r.status}`)
+    erro.status = r.status
+    throw erro
+  }
+  return dados
 }
 
-async function rodarCopilotos() {
-  for (const [id, item] of copilotos) {
-    if (item.encerrando) continue
-    if (await item.cop.passo()) salvarCopiloto(id)
+// ---------- as calls no servidor ----------
+
+// O meet.js manda o começo da call e cada fala que mudou; aqui elas vão ao
+// servidor em lotes (só o que mudou desde o último envio). Se o service worker
+// dormir, na volta manda tudo de novo, e o servidor só atualiza.
+const metaDaAba = new Map() // reunião -> {id, codigo, titulo, url, inicio}
+const falasDaAba = new Map() // reunião -> Map(i -> fala), as mais novas
+const enviadas = new Map() // reunião -> Map(i -> marca do que o servidor já tem)
+const agendadas = new Set()
+let relogioEnvio = null
+
+function agendarEnvio(id) {
+  agendadas.add(id)
+  clearTimeout(relogioEnvio)
+  relogioEnvio = setTimeout(async () => {
+    for (const id of [...agendadas]) {
+      agendadas.delete(id)
+      await sincronizar(id).catch(() => {})
+    }
+  }, 700)
+}
+
+const marca = (f) => `${f.nome}\u0001${f.texto}\u0001${f.eu ? 1 : 0}`
+
+async function sincronizar(id, final = false) {
+  if (!(await sessaoAtual())) return
+  const { ['reuniao:' + id]: r } = await chrome.storage.local.get('reuniao:' + id)
+  const meta = r || metaDaAba.get(id)
+  if (!meta) return
+  const todas = new Map()
+  ;((r && r.falas) || []).forEach((f, i) => f && f.texto && todas.set(i, f))
+  for (const [i, f] of falasDaAba.get(id) || []) todas.set(i, f)
+  const ja = enviadas.get(id) || new Map()
+  enviadas.set(id, ja)
+  const mudadas = [...todas].filter(([i, f]) => ja.get(i) !== marca(f))
+  if (!mudadas.length && !final && ja.size) return
+  const { copilotoAutomatico } = await chrome.storage.local.get(COPILOTO_PADRAO)
+  const fim = final ? (r && r.fim) || new Date().toISOString() : (r && r.fim) || null
+  const base = { codigo: meta.codigo, titulo: meta.titulo, url: meta.url, inicio: meta.inicio, versao: VERSAO, copiloto_auto: copilotoAutomatico }
+  // Em lotes de 300 (a primeira vez de uma call longa); o fim vai no último.
+  for (let k = 0; ; k += 300) {
+    const lote = mudadas.slice(k, k + 300)
+    const ultimo = k + 300 >= mudadas.length
+    await api(`/v1/calls/${encodeURIComponent(id)}/sincronizar`, {
+      metodo: 'POST',
+      corpo: { meta: { ...base, fim: ultimo ? fim : null }, falas: lote.map(([i, f]) => ({ i, nome: f.nome, eu: Boolean(f.eu), texto: f.texto, hora: f.hora })) }
+    })
+    for (const [i, f] of lote) ja.set(i, marca(f))
+    if (ultimo) break
   }
 }
 
-// O que o meet.js manda: o começo da chamada e cada fala que mudou.
-async function mensagemDoMeet(dados) {
-  if (dados.tipo === 'meet-inicio' && (await copilotoDisponivel())) {
-    await copilotoDe(dados.reuniao.id, { titulo: dados.reuniao.titulo, inicio: dados.reuniao.inicio })
-    salvarCopiloto(dados.reuniao.id)
+function mensagemDoMeet(dados) {
+  if (dados.tipo === 'meet-inicio') {
+    metaDaAba.set(dados.reuniao.id, dados.reuniao)
+    buscarSeletores()
+    agendarEnvio(dados.reuniao.id)
   }
   if (dados.tipo === 'meet-fala') {
-    const item = await copilotoDe(dados.reuniao_id)
-    if (!item) return
-    item.falas[dados.i] = { nome: dados.nome, eu: dados.eu, texto: dados.texto, hora: dados.hora }
-    item.cop.atualizar(item.falas, item.inicio)
+    if (!falasDaAba.has(dados.reuniao_id)) falasDaAba.set(dados.reuniao_id, new Map())
+    falasDaAba.get(dados.reuniao_id).set(dados.i, { nome: dados.nome, eu: dados.eu, texto: dados.texto, hora: dados.hora })
+    agendarEnvio(dados.reuniao_id)
   }
 }
 
-// Fim da chamada: o resumo (se o copiloto estava ligado) e o fim do relógio.
-async function encerrarCopiloto(id, reuniao) {
-  const item = await copilotoDe(id)
-  if (!item || item.encerrando) return item && item.encerrando
-  item.encerrando = (async () => {
-    if (reuniao) item.falas = reuniao.falas.map((f) => ({ ...f }))
-    item.cop.atualizar(item.falas, item.inicio)
-    if (item.cop.ativo && !item.cop.resumo && item.cop.falas.length) {
-      // O resumo leva até 1 min; chamar uma API do Chrome a cada 20 s segura o service worker acordado.
-      const acordado = setInterval(() => chrome.runtime.getPlatformInfo(() => {}), 20000)
-      try {
-        await item.cop.resumir(item.titulo)
-      } catch (e) {
-        item.cop.erro = 'Resumo: ' + String(e.message || e).slice(0, 160)
-      } finally {
-        clearInterval(acordado)
-      }
-    }
-    await salvarCopiloto(id)
-    copilotos.delete(id)
-    if (!copilotos.size) relogio = clearInterval(relogio) || null
-  })()
-  return item.encerrando
+// O histórico que estava só no navegador (até a 0.7) vai para o servidor, uma
+// vez por pessoa. O que fica no navegador continua lá (o popup lista e baixa).
+let importando = null
+function importarHistorico() {
+  if (!importando) importando = importar().finally(() => (importando = null))
+  return importando
 }
 
-// Resumo pedido depois (na agenda), de uma chamada que acabou sem resumo.
-async function resumirDepois(id) {
-  const { ['reuniao:' + id]: reuniao } = await chrome.storage.local.get('reuniao:' + id)
-  if (!reuniao) return { erro: 'Chamada não encontrada.' }
-  if (!(await copilotoDisponivel())) return { erro: 'Entre com o seu e-mail da Gravaê no popup (⚙ › Copiloto de vendas).' }
-  copilotos.delete(id)
-  const item = await copilotoDe(id, { titulo: reuniao.titulo, inicio: reuniao.inicio })
-  item.cop.ativo = true
-  item.cop.resumo = null
-  await encerrarCopiloto(id, reuniao)
-  const { ['copiloto:' + id]: salvo } = await chrome.storage.local.get('copiloto:' + id)
-  return salvo && salvo.estado.resumo ? { ok: true } : { erro: (salvo && salvo.estado.erro) || 'O resumo não saiu.' }
+async function importar() {
+  const sessao = await sessaoAtual()
+  if (!sessao) return
+  const tudo = await chrome.storage.local.get(null)
+  const feitos = (tudo.historicoNoServidor && tudo.historicoNoServidor[sessao.email]) || []
+  const pendentes = Object.entries(tudo).filter(([k, r]) => k.startsWith('reuniao:') && r && r.id && !feitos.includes(r.id))
+  for (const [, r] of pendentes) {
+    const cop = tudo['copiloto:' + r.id]
+    try {
+      await api('/v1/calls/importar', {
+        metodo: 'POST',
+        corpo: {
+          reuniao: { id: r.id, codigo: r.codigo, titulo: r.titulo, url: r.url, inicio: r.inicio, fim: r.fim, falas: r.falas },
+          copiloto: cop && cop.guardado ? { guardado: cop.guardado, estado: cop.estado } : null
+        }
+      })
+      feitos.push(r.id)
+    } catch {
+      break // sem rede: tenta na próxima vez
+    }
+  }
+  const { historicoNoServidor = {} } = await chrome.storage.local.get('historicoNoServidor')
+  await chrome.storage.local.set({ historicoNoServidor: { ...historicoNoServidor, [sessao.email]: feitos } })
+}
+
+// Onde ler as legendas do Meet: o servidor publica, a extensão guarda (uma vez
+// por dia). Quando o Google muda a página, na maioria dos casos o conserto sai
+// por lá, sem atualizar a extensão.
+async function buscarSeletores(agora = false) {
+  const { seletoresMeet } = await chrome.storage.local.get('seletoresMeet')
+  if (!agora && seletoresMeet && Date.now() - seletoresMeet.em < 86400000) return
+  try {
+    const r = await fetch(SERVIDOR + '/app/meet-seletores.json', { cache: 'no-store' })
+    if (r.ok) await chrome.storage.local.set({ seletoresMeet: { dados: await r.json(), em: Date.now() } })
+  } catch {}
 }
 
 // ---------- mensagens ----------
 
 chrome.runtime.onMessage.addListener((mensagem, remetente, responder) => {
   if (mensagem.tipo === 'meet') {
-    mensagemDoMeet(mensagem.dados).catch(() => {})
+    mensagemDoMeet(mensagem.dados)
     return
   }
-  if (mensagem.tipo === 'copiloto-ligar') {
-    copilotoDe(mensagem.reuniao).then(async (item) => {
-      if (!item) return responder({ erro: 'Sem roteiro do copiloto.' })
-      const { chave } = await configCopiloto()
-      item.cop.chave = chave
-      item.cop.ligar(Boolean(mensagem.ativo))
-      await salvarCopiloto(mensagem.reuniao)
-      responder({ ok: true })
-    })
+  if (mensagem.tipo === 'copiloto-ligar' || mensagem.tipo === 'copiloto-sugerir') {
+    const corpo = mensagem.tipo === 'copiloto-ligar' ? { ativo: Boolean(mensagem.ativo) } : { sugerir: true }
+    sincronizar(mensagem.reuniao)
+      .catch(() => {})
+      .then(() => api(`/v1/calls/${encodeURIComponent(mensagem.reuniao)}/copiloto`, { metodo: 'POST', corpo }))
+      .then(() => responder({ ok: true }), (e) => responder({ erro: String(e.message || e) }))
     return true
   }
-  if (mensagem.tipo === 'copiloto-sugerir') {
-    copilotoDe(mensagem.reuniao).then((item) => {
-      if (item) item.cop.pedirSugestao()
-      responder({ ok: Boolean(item) })
-    })
-    return true
-  }
-  if (mensagem.tipo === 'copiloto-resumir') {
-    resumirDepois(mensagem.reuniao).then(responder, (e) => responder({ erro: String(e.message || e) }))
+  if (mensagem.tipo === 'copiloto-estado') {
+    api(`/v1/calls/${encodeURIComponent(mensagem.reuniao)}/estado`)
+      .then((r) => responder({ ativo: Boolean(r.copiloto && r.copiloto.ativo) }), () => responder({}))
     return true
   }
   if (mensagem.tipo === 'copiloto-disponivel') {
-    copilotoDisponivel().then((disponivel) => responder({ disponivel }))
+    sessaoAtual().then((s) => responder({ disponivel: Boolean(s) }))
     return true
   }
   if (mensagem.tipo === 'copiloto-codigo') {
@@ -317,11 +301,15 @@ chrome.runtime.onMessage.addListener((mensagem, remetente, responder) => {
     return true
   }
   if (mensagem.tipo === 'copiloto-sair') {
-    chrome.storage.local.remove(['sessaoCopiloto', 'roteiroGravae']).then(() => responder({ ok: true }))
+    chrome.storage.local.remove(['sessaoCopiloto']).then(() => responder({ ok: true }))
     return true
   }
   if (mensagem.tipo === 'copiloto-sessao') {
     sessaoAtual().then((s) => responder(s ? { email: s.email, exp: s.exp } : {}))
+    return true
+  }
+  if (mensagem.tipo === 'importar-historico') {
+    importarHistorico().then(() => responder({ ok: true }), () => responder({}))
     return true
   }
   if (mensagem.tipo === 'garantir') {
@@ -344,14 +332,6 @@ chrome.runtime.onMessage.addListener((mensagem, remetente, responder) => {
       chrome.action.setBadgeText({ tabId: aba, text: '' })
     }
     aoEncerrar(mensagem.id)
-  }
-})
-
-chrome.storage.onChanged.addListener((mudancas, area) => {
-  if (area !== 'local') return
-  if (mudancas.sessaoCopiloto) {
-    const chave = mudancas.sessaoCopiloto.newValue ? 'intermediario' : ''
-    for (const item of copilotos.values()) item.cop.chave = chave
   }
 })
 

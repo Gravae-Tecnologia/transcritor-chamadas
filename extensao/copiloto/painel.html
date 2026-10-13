@@ -4,89 +4,19 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Copiloto · Gravaê</title>
-  <link rel="stylesheet" href="../estilo/gravae.css">
-  <link rel="stylesheet" href="painel.css">
+  <link rel="stylesheet" href="../estilo/casca.css">
 </head>
 <body>
-  <header class="topo">
-    <img class="marca" src="../icones/48.png" alt="">
-    <div class="nome">
-      <h1>Copiloto</h1>
-      <span id="titulo">Gravaê</span>
-    </div>
-    <span id="situacao" class="chip" hidden></span>
-  </header>
-
-  <main id="corpo">
-    <section id="sem-call" class="cartao aviso-grande" hidden>
-      <div class="rotulo">Nenhuma chamada nesta aba</div>
-      <p>Entre numa chamada do Google Meet nesta aba. A transcrição começa sozinha e o copiloto acompanha a conversa aqui do lado. O cliente não vê este painel, nem quando você compartilha a tela.</p>
-      <button id="agenda-1" type="button">Abrir a agenda de calls</button>
-    </section>
-
-    <section id="sem-copiloto" class="cartao aviso-grande" hidden>
-      <div class="rotulo">Falta configurar</div>
-      <p id="sem-copiloto-texto"></p>
-    </section>
-
-    <section id="controle" class="cartao linha" hidden>
-      <label class="interruptor"><input type="checkbox" id="ligado"> <span>Copiloto ligado</span></label>
-      <span id="custo" class="fraco"></span>
-    </section>
-
-    <section id="desligado" class="cartao aviso-grande" hidden>
-      <div class="rotulo">Copiloto desligado</div>
-      <p>A transcrição segue normal. Ligado, o copiloto lê a conversa (inclusive o que já foi dito), marca as etapas do roteiro, avisa das objeções e sugere a próxima frase. Custa centavos de dólar por call.</p>
-      <button id="ligar" class="principal" type="button">Ligar o copiloto</button>
-    </section>
-
-    <div id="fala" class="fala" title="Quanto cada lado falou (por palavras)" hidden>
-      <div class="barra"><span id="fala-vendedor"></span></div>
-      <div class="legenda"><span>Você <b id="pct-vendedor">0%</b></span><span>Cliente <b id="pct-cliente">0%</b></span></div>
-    </div>
-
-    <section id="sugestao" class="cartao sugestao" hidden>
-      <div class="rotulo">Diga agora <span id="sug-etapa" class="chip"></span></div>
-      <p id="sug-frase" class="frase"></p>
-      <div class="rodape"><span id="sug-porque" class="fraco"></span><button id="outra" type="button">Outra sugestão</button></div>
-    </section>
-
-    <section id="objecao" class="cartao objecao" hidden>
-      <div class="rotulo">Objeção: <span id="obj-nome"></span></div>
-      <p id="obj-resposta"></p>
-      <p class="evitar"><b>Evite:</b> <span id="obj-evitar"></span></p>
-    </section>
-
-    <div id="alertas" class="alertas"></div>
-
-    <section id="esperando" class="cartao aviso-grande" hidden>
-      <div id="esperando-rotulo" class="rotulo">Ouvindo</div>
-      <p id="esperando-texto">Assim que a conversa andar, a primeira sugestão aparece aqui.</p>
-    </section>
-
-    <section id="erro" class="cartao erro" hidden></section>
-
-    <section id="resumo" class="cartao resumo" hidden>
-      <div class="rotulo">Resumo da call</div>
-      <div id="resumo-md" class="md"></div>
-    </section>
-
-    <section id="roteiro" class="cartao roteiro" hidden>
-      <h3><span id="roteiro-nome">Roteiro</span> <span id="progresso" class="fraco"></span></h3>
-      <ol id="etapas" class="etapas"></ol>
-    </section>
-
-    <details id="conversa-caixa" class="cartao conversa-caixa" hidden>
-      <summary class="rotulo">Conversa</summary>
-      <ol id="conversa" class="conversa"></ol>
-    </details>
-  </main>
-
-  <footer class="pe">
-    <button id="agenda-2" class="discreto" type="button">📅 Agenda de calls</button>
-  </footer>
-
-  <script src="../lib/markdown.js"></script>
+  <!-- O painel mora no servidor (intermediario/app/painel.html): esta página só o abre e entrega o login. -->
+  <iframe id="app" title="Copiloto" allow="clipboard-write" hidden></iframe>
+  <div id="aviso" class="aviso" hidden>
+    <img src="../icones/48.png" alt="">
+    <h1 id="aviso-titulo"></h1>
+    <p id="aviso-texto"></p>
+    <button id="aviso-tentar" type="button" hidden>Tentar de novo</button>
+  </div>
+  <script src="../lib/config.js"></script>
+  <script src="../lib/casca.js"></script>
   <script src="painel.js"></script>
 </body>
 </html>

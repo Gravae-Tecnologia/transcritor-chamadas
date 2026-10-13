@@ -9,8 +9,14 @@ copiloto entra com o e-mail da Gravaê.
 - POST /v1/renovar (Bearer <sessão>)                     troca a sessão por uma nova (mais 30 dias)
 - GET  /entrar e /callback                               login Google (só funciona com o endereço
                                                          BASE_URL/callback cadastrado no cliente OAuth)
-- POST /v1/jev   (Bearer <sessão>)                       o Jev (marca etapas, objeção, alertas)
-- POST /v1/chat  (Bearer <sessão>)                       a sugestão e o resumo (só os modelos do copiloto)
+- POST /v1/calls/<id>/sincronizar {meta, falas}         a extensão manda a call (metadados e falas novas);
+                                                         o servidor guarda e roda o copiloto (copiloto.py)
+- GET  /v1/calls?de=&ate= · /v1/calls/busca?q= · /v1/calls/<id> · /v1/calls/<id>/estado
+- POST /v1/calls/<id>/copiloto {ativo, sugerir} · /v1/calls/<id>/resumir · /v1/calls/importar
+- DELETE /v1/calls/<id>                                  sempre só as calls de quem pede (calls.py)
+- GET  /app/painel.html · /app/agenda.html               o painel do copiloto e a agenda (abertos dentro da extensão)
+- GET  /app/meet-seletores.json                          onde ler as legendas do Meet (a extensão busca)
+- POST /v1/jev e /v1/chat (Bearer <sessão>)              o Jev e o LLM direto (extensão 0.7, que rodava o copiloto)
 - GET  /v1/roteiro (Bearer <sessão>)                     o roteiro de vendas da Gravaê
 - GET  /v1/eu    (Bearer <sessão>)                       quem é e quanto gastou hoje
 - GET  /instalar                                         a página de instalação (intermediario/pagina/)
@@ -37,6 +43,8 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import calls
+
 CFG = {
     'porta': int(os.environ.get('PORTA', '8006')),
     'base': os.environ.get('BASE_URL', 'https://intake.gravae.io/copiloto').rstrip('/'),
@@ -59,7 +67,12 @@ CFG = {
     'sendgrid_url': os.environ.get('SENDGRID_URL', 'https://api.sendgrid.com/v3/mail/send'),
     'remetente': os.environ.get('EMAIL_FROM', 'noreply@gravae.io'),
     'uso': os.environ.get('ARQUIVO_USO', '/var/lib/gravae-copiloto/uso.json'),
+    'banco': os.environ.get('BANCO', '/var/lib/gravae-copiloto/calls.db'),
+    'app': os.environ.get('APP', '/opt/gravae-copiloto/app'),
 }
+ID_VALIDO = re.compile(r'[A-Za-z0-9._:-]{1,160}')
+BANCO = None
+GERENTE = None
 VOLTA_VALIDA = re.compile(r'^https://([a-p]{32})\.chromiumapp\.org/')
 
 # ---------- sessões assinadas (HMAC), sem banco ----------
@@ -195,22 +208,54 @@ def somar_gasto(email, custo):
 # ---------- OpenRouter ----------
 
 
-def openrouter(caminho, corpo, email):
+def openrouter(caminho, corpo, email, timeout=125):
     pedido = urllib.request.Request(
         CFG['openrouter'] + caminho, json.dumps(corpo).encode(),
         {'Authorization': 'Bearer ' + CFG['chave'], 'Content-Type': 'application/json',
          'X-Title': 'Copiloto Gravae (extensao)'},
     )
-    try:
-        with urllib.request.urlopen(pedido, timeout=125) as r:
-            status, texto = r.status, r.read()
-    except urllib.error.HTTPError as e:
-        status, texto = e.code, e.read()
+    for tentativa in range(3):
+        try:
+            with urllib.request.urlopen(pedido, timeout=timeout) as r:
+                status, texto = r.status, r.read()
+        except urllib.error.HTTPError as e:
+            status, texto = e.code, e.read()
+        if status in (429, 502, 503, 529) and tentativa < 2:
+            time.sleep(1.5 * (tentativa + 1))
+            continue
+        break
     try:
         somar_gasto(email, (json.loads(texto).get('usage') or {}).get('cost'))
     except (ValueError, AttributeError):
         pass
     return status, texto
+
+
+def post_para(email):
+    """O `post` do cérebro do copiloto (copiloto.py), com o teto de gasto da pessoa."""
+    def post(caminho, corpo, timeout=40):
+        if gasto_hoje(email) >= CFG['limite_dia']:
+            raise RuntimeError(f'limite de US$ {CFG["limite_dia"]:.2f} por dia atingido')
+        corpo = dict(corpo, user=email) if caminho == '/chat/completions' else corpo
+        status, texto = openrouter(caminho, corpo, email, timeout)
+        if status != 200:
+            raise RuntimeError(f'HTTP {status}: {texto[:160].decode("utf-8", "replace")}')
+        return json.loads(texto)
+    return post
+
+
+_roteiro = {'mtime': None, 'dados': None}
+
+
+def ler_roteiro():
+    try:
+        mtime = os.path.getmtime(CFG['roteiro'])
+        if mtime != _roteiro['mtime']:
+            with open(CFG['roteiro'], encoding='utf-8') as f:
+                _roteiro.update(mtime=mtime, dados=json.load(f))
+    except (OSError, ValueError):
+        pass
+    return _roteiro['dados']
 
 
 # ---------- arquivos públicos (página, download, versão) ----------
@@ -264,7 +309,7 @@ class Servico(BaseHTTPRequestHandler):
         self.send_header('Content-Length', '0')
         self.end_headers()
 
-    def _arquivo(self, caminho, cache='no-cache', baixar=False):
+    def _arquivo(self, caminho, cache='no-cache', baixar=False, extras=None):
         if not caminho:
             return self._json(404, {'erro': 'não existe'})
         with open(caminho, 'rb') as f:
@@ -276,6 +321,8 @@ class Servico(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin', '*')
         if baixar:
             self.send_header('Content-Disposition', f'attachment; filename="{os.path.basename(caminho)}"')
+        for nome, valor in (extras or {}).items():
+            self.send_header(nome, valor)
         self.end_headers()
         self.wfile.write(corpo)
 
@@ -284,9 +331,9 @@ class Servico(BaseHTTPRequestHandler):
         dados = conferir(cabecalho[7:]) if cabecalho.startswith('Bearer ') else None
         return dados['email'] if dados and dados.get('tipo') == 'sessao' else None
 
-    def _corpo(self):
+    def _corpo(self, limite=4 * 1024 * 1024):
         tamanho = int(self.headers.get('Content-Length') or 0)
-        if tamanho > 4 * 1024 * 1024:
+        if tamanho > limite:
             raise ValueError('pedido grande demais')
         return json.loads(self.rfile.read(tamanho) or b'{}')
 
@@ -309,11 +356,17 @@ class Servico(BaseHTTPRequestHandler):
             return self._arquivo(arquivo_publico(CFG['baixar'], url.path[len('/baixar/'):]), cache='no-cache', baixar=True)
         if url.path == '/versao':
             return self._arquivo(arquivo_publico(CFG['baixar'], 'versao.json'), cache='no-cache')
+        if url.path.startswith('/app/'):
+            # Só abre dentro da extensão (frame-ancestors): ninguém embute o painel num site.
+            return self._arquivo(arquivo_publico(CFG['app'], url.path[len('/app/'):]), cache='no-cache',
+                                 extras={'Content-Security-Policy': "frame-ancestors chrome-extension: 'self'"})
         email = self._quem()
         if not email:
             return self._json(401, {'erro': 'entre com a conta da Gravaê'})
         if url.path == '/v1/eu':
             return self._json(200, {'email': email, 'gasto_hoje': gasto_hoje(email), 'limite_dia': CFG['limite_dia']})
+        if url.path.startswith('/v1/calls'):
+            return self._calls_get(email, url.path, consulta)
         if url.path == '/v1/roteiro':
             try:
                 with open(CFG['roteiro'], encoding='utf-8') as f:
@@ -374,9 +427,11 @@ class Servico(BaseHTTPRequestHandler):
             # Quem usa não precisa entrar de novo: a extensão renova antes de vencer.
             return self._json(200, {'token': nova_sessao(email), 'email': email})
         try:
-            corpo = self._corpo()
+            corpo = self._corpo(32 * 1024 * 1024 if caminho.startswith('/v1/calls') else 4 * 1024 * 1024)
         except ValueError as e:
             return self._json(400, {'erro': str(e)})
+        if caminho.startswith('/v1/calls'):
+            return self._calls_post(email, caminho, corpo)
         if gasto_hoje(email) >= CFG['limite_dia']:
             return self._json(429, {'erro': f'limite de US$ {CFG["limite_dia"]:.2f} por dia atingido'})
         if caminho == '/v1/jev':
@@ -400,6 +455,109 @@ class Servico(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(texto)))
         self.end_headers()
         self.wfile.write(texto)
+
+
+# ---------- as calls (calls.py): cada um só as suas ----------
+
+
+def _id_da_call(caminho, sufixo=''):
+    """'/v1/calls/<id>' + sufixo → id válido, ou None."""
+    resto = caminho[len('/v1/calls/'):]
+    if sufixo:
+        if not resto.endswith(sufixo):
+            return None
+        resto = resto[: -len(sufixo)]
+    resto = urllib.parse.unquote(resto)
+    return resto if ID_VALIDO.fullmatch(resto) else None
+
+
+def _calls_get(self, email, caminho, consulta):
+    if caminho == '/v1/calls':
+        return self._json(200, {'calls': BANCO.listar(email, consulta.get('de'), consulta.get('ate'))})
+    if caminho == '/v1/calls/busca':
+        termo = (consulta.get('q') or '').strip()
+        return self._json(200, {'resultados': BANCO.buscar(email, termo) if len(termo) >= 2 else []})
+    id_ = _id_da_call(caminho, '/estado')
+    if id_:
+        call = BANCO.obter(email, id_, com_falas=False)
+        if not call:
+            return self._json(404, {'erro': 'call não encontrada'})
+        versao, estado = GERENTE.estado(email, id_)
+        versao = f'{versao}:{call["atualizado"]}'
+        if consulta.get('v') == versao:
+            return self._json(200, {'igual': True, 'versao': versao})
+        call.pop('guardado', None)
+        call.pop('copiloto', None)
+        return self._json(200, {'versao': versao, 'call': call, 'copiloto': estado})
+    id_ = _id_da_call(caminho)
+    call = BANCO.obter(email, id_) if id_ else None
+    if not call:
+        return self._json(404, {'erro': 'call não encontrada'})
+    call.pop('guardado', None)
+    return self._json(200, call)
+
+
+def _calls_post(self, email, caminho, corpo):
+    if caminho == '/v1/calls/importar':
+        # O histórico que estava só no navegador (extensão até a 0.7) vem para o servidor.
+        r = corpo.get('reuniao') or {}
+        id_ = str(r.get('id') or '')
+        if not ID_VALIDO.fullmatch(id_):
+            return self._json(400, {'erro': 'call sem id'})
+        ja = BANCO.obter(email, id_, com_falas=False)
+        BANCO.guardar_meta(email, id_, {k: r.get(k) for k in ('codigo', 'titulo', 'url', 'inicio', 'fim')})
+        falas = [dict(f, i=i) for i, f in enumerate(r.get('falas') or []) if f and f.get('texto')]
+        if falas:
+            BANCO.guardar_falas(email, id_, falas)
+        cop = corpo.get('copiloto') or {}
+        if cop.get('guardado') and not (ja and ja.get('guardado')):
+            BANCO.guardar_copiloto(email, id_, cop['guardado'], cop.get('estado') or {})
+        return self._json(200, {'ok': True, 'falas': len(falas)})
+    id_ = _id_da_call(caminho, '/sincronizar')
+    if id_:
+        meta = corpo.get('meta') or {}
+        nova = not BANCO.obter(email, id_, com_falas=False)
+        BANCO.guardar_meta(email, id_, {k: meta.get(k) for k in ('codigo', 'titulo', 'url', 'inicio', 'fim')}
+                           | {'versao_extensao': meta.get('versao')})
+        falas = [f for f in (corpo.get('falas') or []) if isinstance(f, dict) and 'i' in f]
+        if falas:
+            BANCO.guardar_falas(email, id_, falas)
+        if nova and not meta.get('fim'):
+            GERENTE.comecar(email, id_, bool(meta.get('copiloto_auto', True)))
+        GERENTE.falas_novas(email, id_, falas, titulo=meta.get('titulo'), fim=meta.get('fim'))
+        return self._json(200, {'ok': True, 'recebidas': len(falas)})
+    id_ = _id_da_call(caminho, '/copiloto')
+    if id_:
+        if not BANCO.obter(email, id_, com_falas=False):
+            return self._json(404, {'erro': 'call não encontrada'})
+        ok = GERENTE.comando(email, id_, ativo=corpo.get('ativo'), sugerir=bool(corpo.get('sugerir')))
+        return self._json(200 if ok else 409, {'ok': ok} if ok else {'erro': 'sem roteiro no servidor'})
+    id_ = _id_da_call(caminho, '/resumir')
+    if id_:
+        if not BANCO.obter(email, id_, com_falas=False):
+            return self._json(404, {'erro': 'call não encontrada'})
+        try:
+            erro = GERENTE.resumir_agora(email, id_)
+        except Exception as e:
+            erro = str(e)[:200]
+        return self._json(400 if erro else 200, {'erro': erro} if erro else {'ok': True})
+    return self._json(404, {'erro': 'não existe'})
+
+
+def do_DELETE(self):
+    caminho = urllib.parse.urlsplit(self.path).path
+    email = self._quem()
+    if not email:
+        return self._json(401, {'erro': 'entre com a conta da Gravaê'})
+    id_ = _id_da_call(caminho) if caminho.startswith('/v1/calls/') else None
+    if not id_:
+        return self._json(404, {'erro': 'não existe'})
+    return self._json(200 if BANCO.apagar(email, id_) else 404, {'ok': True})
+
+
+Servico._calls_get = _calls_get
+Servico._calls_post = _calls_post
+Servico.do_DELETE = do_DELETE
 
 
 def _login_por_codigo(self, caminho):
@@ -438,6 +596,10 @@ def main():
     faltando = [k for k in ('chave', 'sendgrid', 'segredo') if not CFG[k]]
     if faltando:
         sys.exit('faltam variáveis: ' + ', '.join(faltando))
+    global BANCO, GERENTE
+    os.makedirs(os.path.dirname(CFG['banco']), exist_ok=True)
+    BANCO = calls.Banco(CFG['banco'])
+    GERENTE = calls.Gerente(BANCO, ler_roteiro, post_para)
     servidor = ThreadingHTTPServer(('127.0.0.1', CFG['porta']), Servico)
     print(f'gravae-copiloto em 127.0.0.1:{CFG["porta"]} ({CFG["base"]})', flush=True)
     servidor.serve_forever()

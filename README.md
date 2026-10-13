@@ -83,15 +83,23 @@ contra um roteiro de vendas:
 Para abrir: popup › **Abrir o copiloto**. Para usar, uma vez a cada 30 dias:
 popup › ⚙ › **Copiloto de vendas**, digite o seu e-mail `@gravae.io`, clique em
 **Mandar código** e digite o código de 6 dígitos que chega no e-mail.
-Ninguém precisa de chave: o copiloto passa pelo intermediário da Gravaê
-(`intermediario/`), que guarda a chave da OpenRouter no servidor, só atende
-contas da empresa e entrega o roteiro de vendas (que não está neste
-repositório). Dá para importar outro roteiro (`.json` com etapas, objeções e
-alertas) nas opções.
+Ninguém precisa de chave: desde a 0.8, o copiloto **roda no servidor da
+Gravaê** (`intermediario/`). A extensão só lê as legendas e manda as falas; o
+servidor guarda a call, roda o copiloto (com a chave da OpenRouter e o roteiro de
+vendas, que não está neste repositório) e serve as telas do painel e da agenda,
+que a extensão abre por dentro. Mudar prompt, modelo, gatilho ou tela vale na
+hora para todo mundo, sem atualizar a extensão.
 
 Por baixo: o **Jev** (`typesafe/jev-1.13`) lê a conversa a cada poucas falas e
 marca etapas, objeção e alertas; o Claude Haiku escreve a sugestão e o Claude
-Sonnet, o resumo. Custa uns US$ 0,03 por call, com teto de gasto por pessoa por dia.
+Sonnet, o resumo. Custa uns US$ 0,14 por meia hora de call, com teto de gasto
+por pessoa por dia.
+
+**As calls ficam guardadas no servidor, por pessoa:** dia, horário, duração,
+título, pessoas que falaram, transcrição, quanto cada lado falou, etapas,
+resumo e custo. Cada um só vê as suas (toda leitura filtra pelo e-mail do
+login). O histórico que estava só no navegador (até a 0.7) é levado ao servidor
+uma vez, no primeiro login.
 
 ## O intermediário (`intermediario/`)
 
@@ -103,19 +111,30 @@ Um serviço pequeno, só com a biblioteca padrão do Python, que roda na VM
   10 minutos e 5 tentativas por código; devolve uma sessão assinada (30 dias);
 - `GET /entrar` e `GET /callback`: login Google, desligado na extensão; passa a
   servir se `BASE_URL/callback` for cadastrado no cliente OAuth;
-- `POST /v1/jev` e `POST /v1/chat`: repassa à OpenRouter só os modelos do
-  copiloto, com teto de tokens e de gasto por pessoa por dia;
+- `POST /v1/calls/<id>/sincronizar`: a extensão manda a call (metadados e as
+  falas que mudaram); o servidor guarda (`calls.py`, SQLite) e roda o copiloto
+  (`copiloto.py`), um fio por call ao vivo; no fim, escreve o resumo;
+- `GET /v1/calls`, `/v1/calls/busca?q=`, `/v1/calls/<id>`, `/v1/calls/<id>/estado`,
+  `POST /v1/calls/<id>/copiloto`, `/v1/calls/<id>/resumir`, `/v1/calls/importar`,
+  `DELETE /v1/calls/<id>`: sempre só as calls de quem pede;
+- `GET /app/painel.html` e `/app/agenda.html` (`app/`): as telas, que só abrem
+  dentro da extensão (`frame-ancestors`); `/app/meet-seletores.json`: onde ler as
+  legendas do Meet (a extensão busca uma vez por dia);
+- `POST /v1/jev` e `POST /v1/chat`: o Jev e o LLM direto, para a extensão 0.7
+  (que rodava o copiloto nela);
 - `POST /v1/renovar`: troca a sessão por uma nova (a extensão renova sozinha
   quando faltam menos de 10 dias);
 - `GET /v1/roteiro` e `GET /v1/eu`: o roteiro e o gasto do dia.
 
 Configuração em `/etc/gravae-copiloto.env` (modelo em
-`gravae-copiloto.env.exemplo`), serviço em `gravae-copiloto.service`. Teste sem
-rede: `python intermediario/teste_local.py`.
+`gravae-copiloto.env.exemplo`), serviço em `gravae-copiloto.service`. Testes sem
+rede: `python intermediario/teste_local.py` (as rotas, inclusive "outra pessoa não
+vê") e `python intermediario/teste_copiloto.py` (o cérebro).
 
 ## Agenda de calls
 
-O ícone de calendário no popup abre a agenda: as chamadas numa semana como a do
+O ícone de calendário no popup abre a agenda (servida pelo servidor, com as
+calls de quem está logado): as chamadas numa semana como a do
 Google Agenda, cada uma do tamanho que durou, com a call em andamento marcada ao
 vivo. Clicando numa call, aparecem o resumo do copiloto e a transcrição inteira,
 com a cor de cada pessoa e busca. Dá para buscar em todas as transcrições,
@@ -147,24 +166,23 @@ há uma nova, com o link do "como atualizar".
 extensao/
   manifest.json
   background.js        selo REC, download ao sair ou ao fechar a aba, entrada nas abas já abertas,
-                       o copiloto de cada chamada
+                       login, envio das calls ao servidor, importação do histórico
   lib/falas.js         blocos de legenda → falas (sem DOM, testado no Node)
   lib/formato.js       Markdown, texto e nome do arquivo
   meet/seletores.js    tudo que depende do HTML do Meet
-  meet/meet.js         content script: legendas, falas para o copiloto, diagnóstico, aviso de idioma
+  meet/meet.js         content script: legendas, falas para o servidor, diagnóstico, aviso de idioma
   popup/               lista, opções e controles do copiloto
-  lib/copiloto.js      o copiloto de vendas (Jev + LLM, sem DOM, testado no Node)
-  lib/markdown.js      o resumo do copiloto em HTML
-  copiloto/            o painel lateral do copiloto
-  agenda/              a agenda de calls
-  estilo/gravae.css    o tema, comum ao painel e à agenda
+  lib/config.js        o endereço do servidor
+  lib/casca.js         abre as telas do servidor (painel e agenda) e entrega o login
+  copiloto/            o painel lateral (casca do intermediario/app/painel.html)
+  agenda/              a agenda (casca do intermediario/app/agenda.html)
   fontes/              Space Grotesk e Open Sans (SIL OFL, licenças junto)
   icones/              o G. da Gravaê
-intermediario/         o serviço que guarda a chave e faz o login (ver acima), a página de
-                       instalação (pagina/) e o sincronizar.sh que publica a main na VM
+intermediario/         o servidor (ver acima): servico.py, copiloto.py (o cérebro), calls.py
+                       (as calls por pessoa), app/ (as telas), pagina/ (instalação) e o
+                       sincronizar.sh que publica a main na VM
 testes/
-  falas.test.js        node --test testes/falas.test.js testes/copiloto.test.js
-  copiloto.test.js     o copiloto com uma OpenRouter de mentira
+  falas.test.js        node --test testes/falas.test.js
   meet-falso.html      página que imita o Meet para testar sem chamada
 ```
 

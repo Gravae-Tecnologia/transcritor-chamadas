@@ -1,6 +1,7 @@
 // Content script do Google Meet: espera a chamada começar, liga as legendas,
 // lê o que aparece nelas e guarda a transcrição no chrome.storage.local. Cada
-// fala vai também para o service worker, onde roda o copiloto de vendas.
+// fala vai também para o service worker, que manda ao servidor da Gravaê (onde
+// a call fica guardada e o copiloto roda).
 (function () {
   const S = SELETORES_MEET
   const CONFIG_PADRAO = { automatico: true, baixarAoSair: true, esconderLegendas: false, meuNome: '' }
@@ -372,7 +373,29 @@
       .sort((a, b) => b.inicio.localeCompare(a.inicio))[0] || null
   }
 
+  // Onde ler as legendas: o servidor publica (o service worker guarda uma vez por
+  // dia) e vale por cima do que veio na extensão (seletores.js). Seletor que não
+  // funciona no navegador é ignorado.
+  async function aplicarSeletoresRemotos() {
+    try {
+      const { seletoresMeet } = await chrome.storage.local.get('seletoresMeet')
+      const d = seletoresMeet && seletoresMeet.dados
+      if (!d) return
+      for (const k of ['ICONE', 'REGIOES', 'REGIAO_LEGENDAS', 'NOME_USUARIO', 'TITULO']) {
+        if (typeof d[k] !== 'string' || !d[k]) continue
+        try {
+          document.querySelector(d[k])
+          S[k] = d[k]
+        } catch {}
+      }
+      for (const k of ['ICONE_SAIR', 'ICONE_LEGENDA_DESLIGADA', 'ICONE_LEGENDA_LIGADA']) if (typeof d[k] === 'string' && d[k]) S[k] = d[k]
+      if (typeof d.ROTULO_LEGENDAS === 'string' && d.ROTULO_LEGENDAS) S.ROTULO_LEGENDAS = new RegExp(d.ROTULO_LEGENDAS, 'i')
+      if (Array.isArray(d.VOCE) && d.VOCE.length) S.VOCE = d.VOCE
+    } catch {}
+  }
+
   async function iniciar() {
+    await aplicarSeletoresRemotos()
     config = { ...CONFIG_PADRAO, ...(await chrome.storage.sync.get(CONFIG_PADRAO)) }
     capturarNomeUsuario()
 

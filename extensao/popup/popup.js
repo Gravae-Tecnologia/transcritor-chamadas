@@ -25,16 +25,13 @@ chrome.storage.sync.get(CONFIG_PADRAO).then((config) => {
   }
 })
 
-// ---------- copiloto (opções, em storage.local: a chave não vai para a conta do Google) ----------
+// ---------- copiloto (o roteiro e a IA ficam no servidor da Gravaê) ----------
 
 const COPILOTO_PADRAO = { copilotoAutomatico: true }
-chrome.storage.local.get([...Object.keys(COPILOTO_PADRAO), 'roteiroImportado', 'roteiroGravae']).then((salvo) => {
-  const config = { ...COPILOTO_PADRAO, ...salvo }
+chrome.storage.local.get(COPILOTO_PADRAO).then((config) => {
   const auto = document.getElementById('copilotoAutomatico')
   auto.checked = config.copilotoAutomatico
   auto.addEventListener('change', () => chrome.storage.local.set({ copilotoAutomatico: auto.checked }))
-  const roteiro = salvo.roteiroImportado || (salvo.roteiroGravae && salvo.roteiroGravae.roteiro)
-  document.getElementById('roteiro-nome').textContent = roteiro ? roteiro.nome : 'vem com o login'
 })
 
 // A conta: o e-mail da Gravaê recebe um código de 6 dígitos. O popup fecha quando
@@ -119,19 +116,6 @@ botaoSair.addEventListener('click', async () => {
 })
 olharConta()
 
-document.getElementById('roteiro-arquivo').addEventListener('change', async (e) => {
-  const arquivo = e.target.files[0]
-  if (!arquivo) return
-  try {
-    const roteiro = JSON.parse(await arquivo.text())
-    if (!Array.isArray(roteiro.etapas) || !Array.isArray(roteiro.objecoes) || !Array.isArray(roteiro.alertas)) throw new Error('faltam etapas, objeções ou alertas')
-    await chrome.storage.local.set({ roteiroImportado: roteiro })
-    document.getElementById('roteiro-nome').textContent = roteiro.nome || arquivo.name
-  } catch (erro) {
-    document.getElementById('roteiro-nome').textContent = 'arquivo inválido: ' + erro.message
-  }
-})
-
 function abrirAgenda(id) {
   chrome.tabs.create({ url: chrome.runtime.getURL('agenda/agenda.html') + (id ? '#reuniao=' + encodeURIComponent(id) : '') })
   window.close()
@@ -211,7 +195,7 @@ const chaveCopiloto = document.getElementById('copiloto')
 const botaoAbrirCopiloto = document.getElementById('abrir-copiloto')
 const botaoDiagnostico = document.getElementById('diagnostico')
 let reuniaoDaAba = null
-let copilotoPronto = false // com chave e roteiro
+let copilotoPronto = false // com login
 
 async function olharAba() {
   const [aba] = await chrome.tabs.query({ active: true, currentWindow: true })
@@ -236,9 +220,10 @@ async function olharAba() {
   document.getElementById('interruptor-copiloto').hidden = !copilotoPronto
   botaoAbrirCopiloto.textContent = resposta && resposta.encerrada ? 'Ver o resumo' : 'Abrir o copiloto'
   if (copilotoPronto && reuniaoDaAba) {
-    const { ['copiloto:' + reuniaoDaAba]: salvo } = await chrome.storage.local.get('copiloto:' + reuniaoDaAba)
+    // O estado do copiloto está no servidor; sem resposta, vale a preferência.
     const { copilotoAutomatico } = await chrome.storage.local.get({ copilotoAutomatico: true })
-    chaveCopiloto.checked = salvo ? Boolean(salvo.guardado.ativo) : copilotoAutomatico
+    const r = (await chrome.runtime.sendMessage({ tipo: 'copiloto-estado', reuniao: reuniaoDaAba }).catch(() => null)) || {}
+    chaveCopiloto.checked = 'ativo' in r ? r.ativo : copilotoAutomatico
     chaveCopiloto.disabled = Boolean(resposta && resposta.encerrada)
   }
   botaoAbrirCopiloto.onclick = async () => {
